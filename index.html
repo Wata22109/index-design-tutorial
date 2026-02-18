@@ -731,6 +731,8 @@ CREATE INDEX idx_b ON orders(customer_id, order_date DESC);</code></pre>
         <p>解説: regionとstatusは両方とも等価条件（IN句も等価として扱える）。regionはカーディナリティが低いですが、selectivityは高い（5つの値のうち1つ）。total_amountは範囲条件なので含めませんが、残りの条件で十分絞り込めます。order_date DESCでソートも最適化します。代替案として (status, region, order_date DESC) も有効です。実際のデータ分布とクエリ頻度で決定してください。</p>
     </div>
 
+    <p class="footer-note">本コンテンツの作成時間：約12時間(2026/02/18)</p>
+
 </div>
 
 <script>
