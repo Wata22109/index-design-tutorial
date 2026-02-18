@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>インデックス設計 チュートリアル</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="nav-menu">
+    <button id="menu-btn" onclick="toggleMenu()">目次</button>
+    <div id="menu-content" class="menu-content">
+        <ul>
+            <li><a href="#intro">インデックス設計とは</a></li>
+            <li><a href="#env-setup">事前準備：SQL演習環境</a></li>
+            <li><a href="#prep">事前準備：データ生成</a></li>
+            <li><a href="#btree">1. B-Treeの構造と計算量</a></li>
+            <li><a href="#bplustree">1.1 B+Treeの構造とメリット</a></li>
+            <li><a href="#composite">2. 複合インデックスの設計と最適化</a></li>
+        </ul>
+    </div>
+</nav>
+
+<div class="container">
+    <h1 id="intro">PostgreSQL インデックス設計 チュートリアル</h1>
+    <p>データベースのパフォーマンスは、クエリの書き方以上に「インデックス設計」で決まります。100万件のデータを用いて、その圧倒的な差を体感しましょう。</p>
+
+    <h2 id="prep">インデックス設計とは</h2>
+    <p>データベースにおけるインデックス設計とは、膨大なデータから目的の情報を素早く見つけるための「索引」を、どのデータに対して、どのように作成するかを計画することです。インデックスを適切に設計すると、検索速度が劇的に向上しますが、闇雲に作成すると逆にシステムのパフォーマンスを下げてしまうこともあります。</p>
+    <h3 id="prep">インデックスの仕組み</h3>    
+    <p><strong>索引がない場合（フルスキャン）</strong><br>
+        例えば、1,000ページある技術書から「インデックス」という単語を探したいとします。索引がなければ、1ページ目から順番に最後まで読んでいくしかありません。これをデータベースではフルテーブルスキャンと呼びます。データ量が増えるほど、探す時間は膨大になります。</br>
+        
+        <strong>索引がある場合（インデックススキャン）</strong><br>
+        巻末の索引で「あ行」の「インデックス」を探せば、「324ページにある」と即座にわかります。辞書本体を全部読まなくても、数ページめくるだけで目的の場所にたどり着けます。これがインデックスの役割です。</p>
+
+    <h3 id="prep">「設計」とは</h3>
+    <p>全ての項目に索引をつければ良いのではないかと思うかもしれませんが、それではうまくいかない理由が3つあります。</p>
+    <ul>
+        <li><strong>書き込み速度の低下</strong>:<br> データを追加・更新するたびに、索引も書き換える必要があります。索引が多すぎると、本編の更新よりも索引の更新に時間がかかってしまいます。</li>
+        <li><strong>容量の消費</strong>:<br> 索引自体もデータです。作りすぎるとストレージを圧迫します。</li>
+        <li><strong>効率の悪い索引</strong>:<br> 「性別」のように種類が少ない項目（男・女のみなど）に索引をつけても、結局半分くらいのデータを見ることになり、あまり速くなりません。</li>
+    </ul>
+    <p>データベースに対して適切にインデックスを「設計」することが、パフォーマンスを向上させるために必要なのです。</p>
+
+    <h3>インデックスを作成すべきパターン</h3>
+    <p><strong>レコード数の多いテーブル</strong><br>
+        レコード数の少ないテーブルではそもそもフルスキャンした方が高速な場合があります。1万レコード以下であればインデックスの効果は薄いです。しかし、サーバーのスペックなどにもよるため実測しながら決定することが望ましいです。</p>
+    <p><strong>カーディナリティの高いカラム</strong><br>
+        カーディナリティとは「値の分散度」を示し、これがインデックスを作る際に最も重要な指針となります。特定の列について多くの種類の値を持っていればカーディナリティが高く、少なければカーディナリティが低いということを指します。例えば、性別や都道府県のようにパターン数が決まっている項目はインデックスの効果が望みにくいですが、社員番号やメールアドレスといった重複しない項目はインデックスの効果が高くなります。</p>
+    <p><strong>SQLの抽出条件や結合条件に使用されるカラム</strong><br>
+        SQLを発行する際、以下のように使われるカラムにインデックスを作成することで効果を発揮します。</p>
+    <ul>
+        <li>WHERE句に使用されるカラム</li>
+        <li>テーブル結合でON句に使用されるカラム</li>
+        <li>ORDER BY句に使用されるカラム</li>
+    </ul>
+    <p>逆に言えば検索条件や結合条件に利用されないカラムにインデックスを作成するのは無意味です。</p>
+
+    <h2 id="env-setup">事前準備：SQL演習環境の構築(任意)</h2>
+    <p>SQL演習環境を作成する場合は以下の手順を実行してください。</p>
+
+    <h3>Docker</h3>
+    <ol>
+        <li><strong>Docker Desktopの準備</strong>: Docker Desktopをインストールし、起動状態（Running）にしておきます。</li>
+        <li><strong>イメージの取得</strong>: 公式リポジトリ（Docker Hub）からPostgreSQLとDbGateのイメージを取得（pull）します。</li>
+    </ol>
+    <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <pre><code>docker image pull postgres:17.6
+docker image pull dbgate/dbgate:6.6.3</code></pre>
+    </div>
+    <ol start="3">
+        <li><strong>コンテナの作成と起動</strong>: <code>docker container run</code>コマンドを使用し、環境変数やポートマッピング（-p 5432:5432）、バックグラウンド実行（-d）を指定してコンテナを起動します。</li>
+    </ol>
+    <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <pre><code>docker container run --name pg17 -e POSTGRES_USER=student -e POSTGRES_PASSWORD=secret123 -e POSTGRES_DB=playground -p 5432:5432 -d postgres:17.6</code></pre>
+    </div>
+
+    <h3>SQL演習用環境</h3>
+    <ol>
+        <li><strong>リポジトリのクローン</strong>: 演習用教材のGitリポジトリ（<a href="https://github.com/TakeshiWada1980/DB-2025-PostgreSQL.git" target="_blank" rel="noopener">https://github.com/TakeshiWada1980/DB-2025-PostgreSQL.git</a>）をローカルに複製し、VSCodeで開きます。</li>
+        <li><strong>依存関係のインストール</strong>: <code>npm i</code>コマンドを実行し、プロジェクトに必要なライブラリをインストールします。</li>
+        <li><strong>環境変数の設定</strong>: プロジェクトルートに<code>.env</code>ファイルを作成し、PostgreSQLへの接続文字列を記述します。</li>
+    </ol>
+    <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <pre><code>DATABASE_URL="postgresql://student:secret123@localhost:5432/playground?schema=public"</code></pre>
+    </div>
+    <ol start="4">
+        <li><strong>コンテナの起動</strong>: <code>npm run db:up</code>コマンドを実行します。これにより、PostgreSQLとDbGate（DB管理ツール）のコンテナがまとめて起動します。</li>
+    </ol>
+
+    <h2 id="prep">事前準備：データ生成 (init_data.sql)</h2>
+    <p>まずは実験台となる100万件の注文履歴データを作成します。2章の実験でも同じ <code>orders</code> テーブルを使用します。</p>
+    <p>貼り付けて実行してください。</p>
+    <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+        <pre><code>-- 100万件のダミーデータ生成スクリプト
+DROP TABLE IF EXISTS orders;
+CREATE TABLE orders (
+    order_id SERIAL PRIMARY KEY,
+    customer_id INTEGER NOT NULL,
+    order_date DATE NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    total_amount DECIMAL(10, 2) NOT NULL,
+    region VARCHAR(50) NOT NULL
+);
+INSERT INTO orders (customer_id, order_date, status, total_amount, region)
+SELECT 
+    (random() * 10000)::INTEGER + 1,
+    CURRENT_DATE - (random() * 365 * 3)::INTEGER,
+    (ARRAY['pending', 'processing', 'shipped', 'delivered', 'cancelled'])[floor(random() * 5 + 1)],
+    (random() * 10000)::DECIMAL(10, 2),
+    (ARRAY['Tokyo', 'Osaka', 'Nagoya', 'Fukuoka', 'Sapporo'])[floor(random() * 5 + 1)]
+FROM generate_series(1, 1000000);
+ANALYZE orders;</code></pre>
+    </div>
+    <p>SQLの意味は次の通りです。</p>
+    <p><strong>customer_id</strong>: 10,000倍して整数化 → 1〜10,000のランダムな顧客ID</p>
+    <p><strong>order_date</strong>: 今日を起点として0〜3年分の日付をランダムに減算 <br>→ 過去3年程度のランダムな注文日</p>
+    <p><strong>status</strong>: pending / processing / shipped / delivered / cancelled のいずれかをランダムに付与</p>
+    <p><strong>total_amount</strong>: 0〜10,000円程度のランダムな金額</p>
+    <p><strong>region</strong>: Tokyo / Osaka / Nagoya / Fukuoka / Sapporo のいずれかをランダムに付与</p>
+
+    <div class="highlight-box">
+        <p><strong>ANALYZE orders;</strong></p>
+        <p><pre><code>ANALYZE orders;</code></pre><br>
+            PostgreSQLのクエリオプティマイザに判断材料を与えるためのコマンド。</p>
+
+        <p><strong>クエリオプティマイザとは</strong><br>
+            PostgreSQLは、クエリを実行する前に「どの方法が一番速いか」を自動判断します。その判断に必要な情報が統計情報です。</p>
+
+        <p><strong>ANALYZEで収集される情報</strong></p>
+        <ul>
+            <li>各カラムの値の分布: どんな値が多いか</li>
+            <li>NULL値の割合: NULLがどれくらいあるか</li>
+            <li>データの偏り: 特定の値に偏っているか</li>
+            <li>テーブルのサイズ: 全体で何行あるか</li>
+        </ul>
+
+        <p><strong>ANALYZEが必要なタイミング</strong></p>
+        <ul>
+            <li>大量データを投入した後</li>
+            <li>インデックスを作成した後</li>
+            <li>データの傾向が大きく変わった後</li>
+        </ul>
+    </div>
+    <h2 id="performance">パフォーマンスの計測</h2>
+    <div class="exercise-box">
+        <span class="exercise-title">📝 演習：インデックスなしで検索</span>
+        <p>まだインデックスを作成していない状態で検索を実行し、どのような計画になるかを確認します。</p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>EXPLAIN ANALYZE SELECT * FROM orders WHERE customer_id = 5000;</code></pre>
+        </div>
+        <p>SQLの意味は次の通りです。</p>
+        <ul>
+            <li><strong>EXPLAIN ANALYZE</strong>: PostgreSQLの診断ツールで、クエリを実際に実行して、以下の情報を返す
+                <ul>
+                    <li>実行計画: どのようにデータを取得するか</li>
+                    <li>実行時間: 各処理にかかった時間</li>
+                    <li>処理行数: 実際にスキャンした行数</li>
+                </ul>
+            </li>
+        </ul>
+        <details>
+            <summary>確認ポイント</summary>
+            <div class="answer-content">
+                <p><code>Seq Scan</code> が表示され、実行時間が長めになることを確認してください。これが「インデックスなし検索」の基準になります。</p>
+            </div>
+        </details>
+    </div>
+
+    <div class="exercise-box">
+        <span class="exercise-title">📝 演習：インデックス設計後の検索</span>
+        <p>次にインデックスを作成し、同じ検索を実行して効果を確認します。</p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>START TRANSACTION;
+CREATE INDEX idx_orders_customer_id ON orders(customer_id);
+ANALYZE orders;
+EXPLAIN ANALYZE SELECT * FROM orders WHERE customer_id = 5000;
+ROLLBACK;</code></pre>
+        </div>
+        <p>SQLの意味は次の通りです。</p>
+        <ul>
+            <li><strong>CREATE INDEX</strong>: <code>orders.customer_id</code> に検索用の索引を作成します。<code>WHERE customer_id = ...</code> の検索を高速化する狙いです。</li>
+        </ul>
+        <p>この例は単一列に素直にインデックスを貼るだけなので、設計の工夫はほとんどありません。インデックス作成後は、DBが自動的に適切な実行計画を選ぶため「設計している感」は薄いケースです。</p>
+        <details>
+            <summary>確認ポイント</summary>
+            <div class="answer-content">
+                <p><code>Index Scan</code> が表示され、実行時間が大きく短くなることを確認してください。先ほどの結果と比べると差がはっきり分かります。</p>
+            </div>
+        </details>
+
+
+    <h3>なぜ単一列インデックスで速くなるのか</h3>
+    <p>この例では <code>customer_id</code> にB-Treeというものが作成されます。内部的には「<code>customer_id</code> の値」と「該当する行の場所（TID）」の対応表が作られ、木構造として整理されます。</p>
+    <p>検索時は、テーブル全体を順番に見るのではなく、B-Treeを辿って該当する <code>customer_id</code> の位置に直接ジャンプします。さらに一致する行の場所がまとまっていれば、読み込みの回数も減るため、全件走査よりも大幅に高速化されます。</p>
+    <p>結果として、<code>Seq Scan</code> から <code>Index Scan</code> に変わり、処理量が大きく削減されます。</p>
+</div>
+
+
+
+
+    
+    <h2 id="btree">1. B-Treeのデータ構造について</h2>
+    <p>インデックスがない場合、DBは1枚ずつページをめくって探します（全件走査：Seq Scan）。100万件なら100万回のステップが必要です。</p>
+    
+    <p>B-Treeインデックスは、データを木構造で整理します。100万件あっても、わずか数回の「枝分かれ」を辿るだけで目的のデータに辿り着きます。</p>
+    <p>B-Treeのデータ構造について、構成要素・検索処理・ノード分割とマージの観点で整理します。</p>
+
+    <h3>B-Treeの構成要素</h3>
+    <p>B-Treeは、ルートノード、内部ノード、リーフノードという3つのタイプのノードによって構成される階層的なデータ構造です。</p>
+    <img class="btree-image" src="images/B-Tree.png" alt="B-Treeのデータ構造">
+    <p>階層構造の頂点に位置するのがルートノードであり、このノードは親を持たず、木構造の出発点となります。</p>
+    <p>階層の最下部に存在するリーフノードは、子ノードを持ちません。</p>
+    <p>内部ノードは、ルートノードとリーフノードの中間に配置されるノードで、効率的なデータ検索を実現するための案内役として機能します。</p>
+    <p>B-Treeの各ノードには、複数のキー値とポインタが保存されます。キー値は常にソート済みの状態で保持され、ノード内では昇順に配列されています。例として、従業員IDをキーとして利用する際には、ノード内のキー値は小さい値から順に配列されます。</p>
+    <p>各ノードに保存可能なキーの個数には、上限値と下限値が定められています。この上限値と下限値は、B-Treeの次数（degree）により決まります。次数mのB-Treeでは、各ノードは最小(m/2)-1個、最大(m-1)個のキーを保持できます。ただし、ルートノードについては例外的に、最小1個のキーを保持すればよいとされています。</p>
+    <p>ノード内のキー値は、その子ノードが保持するキー値の範囲を表します。あるキー値kを保持するノードの場合、その左側の子ノードにはkより小さい値のキーが、右側の子ノードにはkより大きい値のキーが保存されます。このルールはB-Tree全体において一貫して適用されています。</p>
+    <p>具体例として、ノードに[10, 20, 30]というキー値が保存されている場合、このノードは4つの子ノードを保持します。最左の子ノードには10未満のキー値、2番目の子ノードには10以上20未満のキー値、3番目の子ノードには20以上30未満のキー値、最右の子ノードには30以上のキー値が保存されます。</p>
+    <div class="highlight-box"><img class="btree-image" src="images/B-Tree2.png" alt="B-Treeのノードのデータ構造">
+    <img class="btree-image" src="images/B-Tree3.png" alt="B-Treeのノードのデータ構造"></div>
+    <p>このように、B-Treeは厳密なルールに基づいて構造化されており、これによって効率的なデータ検索が実現されています。</p>
+
+    <h3>B-Treeにおける検索処理</h3>
+    <p>B-Treeでのデータ検索は、ルートノードを起点として、目標とするデータが発見されるまで、あるいはデータの非存在が判明するまで、段階的に下層のノードへと移動していきます。この検索処理について、具体的な手順を説明します。</p>
+    <p>検索の最初のステップは、ルートノードでの照合です。ルートノードでは、検索対象のキー値と、ノード内に保存されているキー値を照合します。ノード内のキー値はソートされているため、二分探索を利用して効率的に照合を実施できます。</p>
+    <p>具体例として、従業員ID「22」を検索するケースを考えます。ルートノードに[10, 20, 30]というキー値が保存されているとすると、まず「22」と中央の値「20」を照合します。「22」は「20」より大きいため、次に「30」との照合を実施します。「22」は「30」より小さいため、3番目の子ノード(「20」と「30」の間に対応する子ノード)へ検索を進めます。</p>
+    <p>この処理は、子ノードにおいても同様に繰り返されます。各ノードでは、保存されているキー値との照合を実施し、適切な子ノードを選んで検索を継続します。例として、次のノードに[21, 22, 23]というキー値が保存されている場合、検索対象の「22」が発見されたため、検索はここで完了します。</p>
+    <img class="btree-image" src="images/B-Tree4.png" alt="B-Treeの検索処理">
+    <p>検索対象のキー値が存在しないケースでは、検索はリーフノードまで到達します。リーフノードでキー値が発見できない場合、そのキー値はB-Tree内に存在しないことが判明します。</p>
+    <p>B-Treeの重要な性質として、すべてのパス(ルートノードからリーフノードまでの経路)の長さが等しいことが挙げられます。これにより、どのデータを検索するケースでも、ルートノードからリーフノードまでの移動回数は同一になります。この性質により、検索時間の予測が容易になり、安定したパフォーマンスを提供できます。</p>
+    <p>B-Treeの検索パフォーマンスは、木の高さに大きく依存します。例として、1000万件のデータを保存するB-Treeであっても、1ノードあたり100個のキーを保存できるケースでは、高さは4程度に抑えられます。これは、各レベルでの検索に必要な照合回数が最大でも7回程度(100個のキーに対する二分探索)であることを意味します。</p>
+
+    <h3>B-Treeのノード分割とマージの処理</h3>
+    <p>B-Treeでは、データの追加や削除に伴い、ノードの分割やマージが実施されます。これらの処理は、B-Treeのバランスを維持し、効率的な検索パフォーマンスを保つために重要な役割を担います。</p>
+    <p>ノードの分割は、新規データを追加する際にノードが最大容量に到達した場合に実施されます。例として、最大4つのキーを保存できるノードに、すでに4つのキー[10, 20, 30, 40]が保存されている状態で、新規キー「25」を追加するケースを考えます。このノードはすでに最大容量に到達しているため、分割が必要になります。</p>
+    <p>分割の処理は以下のように実施されます。まず、ノード内のキーを順序に従ってソートします。この例では[10, 20, 25, 30, 40]となります。次に、この5つのキーの中央値「25」を選択し、これを親ノードへ昇格させます。残りのキーのうち、「25」より小さいキー[10, 20]は元のノードに保持し、大きいキー[30, 40]は新しく生成したノードへ移動させます。</p>
+    <img class="btree-image btree-image-half" src="images/B-Tree5.png" alt="B-Treeのノードの分割">
+    <p>ノードのマージは、データの削除によりノードのキー数が最小容量を下回った場合に実施されます。例として、最小2つのキーが必要なノードで、キーを削除した結果、1つのキーしか残らなくなったケースです。</p>
+    <p>マージの処理では、まず隣接するノードを確認します。そのノードに十分な空き容量がある場合、両方のノードのキーを1つのノードに統合します。この際、親ノードから適切なキーを降格させ、マージ後のノードに含めます。</p>
+    <p>具体例として、2つの隣接するノードがあり、一方に[10]、もう一方に[30, 40]というキーが保存されており、親ノードに「20」というキーがあるケースでは、マージ後は1つのノードに[10, 20, 30, 40]というキーが保存されます。</p>
+    <img class="btree-image btree-image-half" src="images/B-Tree6.png" alt="B-Treeのノードのマージ">
+    <img class="btree-image btree-image-half" src="images/B-Tree7.png" alt="B-Treeのノードのマージ">
+    <p>これらの分割とマージの処理は、必要に応じて親ノードにも伝播していきます。つまり、親ノードでも同様の分割やマージが実施される可能性があります。この伝播は、必要に応じてルートノードまで継続されます。</p>
+
+    <h2 id="bplustree">1.1 B+Treeの構造とメリット</h2>
+    <p>これまで、B-Treeについての説明をしましたが、データベースにおいて主流なのは「B+Tree」というものです。B+TreeはB-Treeをさらにデータベースの検索（特に範囲検索）に特化させた進化形です。</p>
+
+    <h3>B+Treeとは</h3>
+    <p>B+Treeは、B-Treeの構造をベースにしつつ、「データの持ち方」と「ノード間のつながり」を改良したデータ構造です。現在のリレーショナルデータベース（MySQLのInnoDB、PostgreSQLなど）のインデックスにおいて、最も一般的に採用されています。</p>
+
+    <h3>B-Treeとの決定的な3つの違い</h3>
+    <p>B-TreeとB+Treeの最大の違いは、「サテライトデータ（実際のレコードやポインタ）」をどこに配置するかにあります。</p>
+    <ul>
+        <li><strong>データはリーフノード（最下層）にのみ集約</strong>: B-Treeでは各内部ノードもデータを持っていましたが、B+Treeでは内部ノードは「検索用のキー（枝分かれの指標）」のみを保持し、実際のデータ（またはデータへのポインタ）はすべて最下層のリーフノードに格納します。</li>
+        <li><strong>リーフノード同士が連結リストでつながっている</strong>: これが実務上の最大の利点です。隣り合うリーフノードがポインタで結ばれているため、ツリーを昇り降りすることなく、横方向にデータをスキャンできます。</li>
+        <li><strong>キーの重複</strong>: 内部ノードにあるキーはあくまで「道しるべ」なので、同じキー値がリーフノードにも存在します。</li>
+    </ul>
+
+    <h3>データベース設計におけるメリット</h3>
+    <p>なぜB-TreeではなくB+Treeが選ばれるのか、その理由は運用の効率性にあります。</p>
+    <ol>
+        <li><strong>範囲検索（Range Scan）が圧倒的に速い</strong><br>
+            B-Treeで「10から20までのデータを取得する」場合、何度もツリーを上下に移動（再帰的な探索）する必要があります。B+Treeなら、「10」を一度見つけたら、あとはリーフノードを横にたどるだけで「20」まで辿り着けます。これが <code>SELECT * FROM table WHERE age BETWEEN 20 AND 30</code> といったクエリが高速な理由です。</li>
+        <li><strong>キャッシュ効率（入出力効率）が良い</strong><br>
+            内部ノードにデータを持たないため、1つのノード（ディスクブロック）により多くの「キー」を詰め込むことができます。分岐数が増えることでツリーの高さが低くなり、1回のディスクI/Oで読み込めるインデックス情報が増えるため、検索性能が安定します。</li>
+        <li><strong>全走査（Full Scan）の簡便さ</strong><br>
+            全データを走査する場合、ツリー全体をなぞる必要はなく、リーフノードの端から端までをなぞるだけで済みます。</li>
+    </ol>
+
+    <h2 id="composite">2. 複合インデックスの設計と最適化</h2>
+    <h3>2.1 複合インデックスを使用する理由</h3>
+    <p><strong>単一カラムインデックスの限界</strong></p>
+    <p>データベースで検索を行う際、多くの場合、複数の条件を組み合わせて検索します。例えば、ECサイトで「東京都内で、配送済みの、2024年1月以降の注文」を検索する場合、region、status、order_dateという3つの条件が必要です。</p>
+    <p>もし各カラムに個別のインデックスがあったとしても、PostgreSQLは基本的に1つのクエリで1つのインデックスしか使用しません（Bitmap Index Scanを除く）。つまり、regionのインデックスだけを使って該当する行を絞り込んだ後、残りの条件は実際のテーブルデータを読み込んでフィルタリングする必要があります。</p>
+    <p>複合インデックスを使用することで、複数の条件を同時にインデックス内で処理でき、テーブル本体へのアクセスを最小限に抑えられます。</p>
+    <p><strong>複合インデックスの内部構造</strong></p>
+    <p>複合インデックスは、指定した順序でカラムを連結したキーとして構築されます。例えば (region, status, order_date) というインデックスは、内部的に以下のように整列されています:</p>
+    <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+        <pre><code>('Fukuoka', 'cancelled', '2024-01-15')
+('Fukuoka', 'cancelled', '2024-01-20')
+('Fukuoka', 'delivered', '2024-01-10')
+('Fukuoka', 'delivered', '2024-01-18')
+('Fukuoka', 'pending', '2024-01-05')
+('Osaka', 'cancelled', '2024-01-12')
+('Osaka', 'delivered', '2024-01-08')
+...
+('Tokyo', 'shipped', '2024-01-25')
+('Tokyo', 'shipped', '2024-01-30')</code></pre>
+    </div>
+    <p>この構造から分かるように、第1カラムでまず大きくグループ化され、その中で第2カラムがソートされ、さらにその中で第3カラムがソートされるという階層的な構造になっています。</p>
+
+    <h3>2.2 カラム順序の決定原則</h3>
+    <p>複合インデックスで最も重要なのはカラムの順序です。順序を間違えると、インデックスが全く使われない、あるいは効率が大幅に低下する可能性があります。</p>
+    <p><strong>原則1: 等価条件(=)を優先的に先頭に配置する</strong></p>
+    <p>検索条件には「等価条件」（column = value）と「範囲条件」（column &gt; value、BETWEEN、LIKE 'prefix%'）があります。</p>
+    <p>等価条件は、インデックス内で該当する範囲を一点に絞り込むことができます。例えば region = 'Tokyo' という条件は、インデックス内の「Tokyoで始まる部分」だけを対象にします。<br>
+        一方、範囲条件は、該当する範囲全体をスキャンする必要があります。order_date &gt;= '2024-01-01' という条件は、該当日以降のすべての行を確認しなければなりません。</p>
+    <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+        <pre><code>-- 良い例: 等価条件(status)を先頭に
+CREATE INDEX idx_good ON orders(status, order_date);
+
+-- このクエリは効率的
+SELECT * FROM orders 
+WHERE status = 'shipped'  -- 等価条件でまず絞り込み
+  AND order_date >= '2024-01-01';  -- 残りの範囲を検索</code></pre>
+    </div>
+    <p>idx_goodを使用すると、インデックス内で「statusが'shipped'」の部分だけを特定し、その中でorder_dateの条件に合う行を探します。</p>
+    <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+        <pre><code>-- 悪い例: 範囲条件(order_date)を先頭に
+CREATE INDEX idx_bad ON orders(order_date, status);
+
+-- 同じクエリでも非効率
+SELECT * FROM orders 
+WHERE status = 'shipped'
+  AND order_date >= '2024-01-01';</code></pre>
+    </div>
+    <p>idx_badを使用すると、order_date &gt;= '2024-01-01' の範囲全体をスキャンし、その後各行でstatus = 'shipped'かどうかを確認する必要があります。</p>
+
+    <p><strong>原則2: 選択性(Selectivity)が高いカラムを優先</strong></p>
+    <p>選択性とは、「そのカラムの条件でどれだけデータを絞り込めるか」を示す指標です。選択性が高いほど、少ない行数に絞り込めます。</p>
+    <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+        <pre><code>選択性 = 該当する行数 / 全体の行数
+値が小さいほど選択性が高く、効率的に絞り込めます。</code></pre>
+    </div>
+    <p>カーディナリティが高いカラムは、通常、選択性も高くなります。</p>
+    <p>例: customer_id: 10,000種類の値（カーディナリティ高）→ 各値で約100行に絞り込める <br> status: 5種類の値（カーディナリティ低）→ 各値で約20万行に絞り込める</p>
+    <p>100万行のテーブルで customer_id = 5000 を検索すると約100行に絞り込めますが、status = 'shipped' では約20万行が該当します。</p>
+    <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+        <pre><code>-- カーディナリティの確認
+SELECT 
+    COUNT(DISTINCT customer_id) as customer_cardinality,
+    COUNT(DISTINCT status) as status_cardinality,
+    COUNT(DISTINCT region) as region_cardinality,
+    COUNT(*) as total_rows
+FROM orders;</code></pre>
+    </div>
+    <p>適用例:</p>
+    <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+        <pre><code>-- 選択性を考慮した順序
+CREATE INDEX idx_selective ON orders(customer_id, status, order_date);
+-- customer_id(高選択性) → status(低選択性) → order_date(範囲)
+
+-- このクエリは効率的
+SELECT * FROM orders
+WHERE customer_id = 5000    -- まず100行程度に絞り込み
+  AND status = 'shipped'    -- さらに20行程度に
+  AND order_date >= '2024-01-01';  -- 最終的に数行に</code></pre>
+    </div>
+
+    <p><strong>原則3: 使用頻度を考慮（最左プレフィックスルール）</strong></p>
+    <p>すべてのクエリが全てのカラムを使用するとは限りません。インデックスの最左プレフィックスルールにより、インデックスの左側（先頭）のカラムだけでも利用できます。</p>
+    <p>最左プレフィックスルールとは: (A, B, C) という複合インデックスは、以下の検索条件で利用可能です: A / A, B / A, B, C。B、C、B, Cは利用できません（または部分的にしか利用できません）。</p>
+    <p>これは、電話帳で「姓」が分かれば検索できるが、「名」だけでは検索できないのと同じ理屈です。</p>
+    <p>実用例:</p>
+    <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+        <pre><code>CREATE INDEX idx_multi_use ON orders(customer_id, order_date, status);
+
+-- ✓ インデックスを完全に利用
+SELECT * FROM orders WHERE customer_id = 100 AND order_date >= '2024-01-01' AND status = 'shipped';
+
+-- ✓ インデックスを部分的に利用（customer_id, order_date）
+SELECT * FROM orders WHERE customer_id = 100 AND order_date >= '2024-01-01';
+
+-- ✓ インデックスを部分的に利用（customer_idのみ）
+SELECT * FROM orders WHERE customer_id = 100;
+
+-- ✗ インデックスを利用できない
+SELECT * FROM orders WHERE order_date >= '2024-01-01';
+
+-- ✗ インデックスを利用できない
+SELECT * FROM orders WHERE status = 'shipped';</code></pre>
+    </div>
+    <p>したがって、最も頻繁に単独で検索されるカラムを先頭に配置すると、複数のクエリパターンに対応できます。</p>
+
+    <p><strong>原則4: ソート(ORDER BY)との関連性</strong></p>
+    <p>複合インデックスは、カラムの順序でソート済みのデータ構造です。この特性を活用すると、ORDER BY句の処理を高速化できます。</p>
+    <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+        <pre><code>-- インデックス作成
+CREATE INDEX idx_sort ON orders(customer_id, order_date DESC);
+
+-- このクエリではソート処理が不要（インデックスがすでにソート済み）
+SELECT * FROM orders
+WHERE customer_id = 100
+ORDER BY order_date DESC
+LIMIT 10;</code></pre>
+    </div>
+    <p>EXPLAINの結果に「Sort」ステップが現れなければ、インデックスのソート順序が活用されています。</p>
+    <p>注意点: PostgreSQLでは、インデックス作成時に各カラムのASC/DESCを指定できます。</p>
+    <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+        <pre><code>CREATE INDEX idx_custom_sort ON orders(region ASC, order_date DESC, total_amount DESC);</code></pre>
+    </div>
+    <p>これにより、ORDER BY region ASC, order_date DESC, total_amount DESC というソート順序に最適化されます。</p>
+
+    <h3>2.3 複合インデックス設計の実践的アプローチ</h3>
+    <p><strong>ステップ1: クエリパターンの分析</strong></p>
+    <p>まず、アプリケーションで実行される主要なクエリパターンを特定します。</p>
+    <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+        <pre><code>-- よくあるクエリパターンをリストアップ
+-- Q1: 顧客の注文履歴（頻度: 高）
+WHERE customer_id = ? AND order_date >= ?
+
+-- Q2: ステータス別の地域検索（頻度: 中）
+WHERE region = ? AND status = ?
+
+-- Q3: 期間集計（頻度: 低）
+WHERE order_date BETWEEN ? AND ?
+GROUP BY ...</code></pre>
+    </div>
+    <p><strong>ステップ2: カラムの特性を評価</strong></p>
+    <p>各カラムのカーディナリティと選択性を確認します。</p>
+    <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+        <pre><code>SELECT 
+    COUNT(DISTINCT customer_id) as customer_distinct,
+    COUNT(DISTINCT region) as region_distinct,
+    COUNT(DISTINCT status) as status_distinct,
+    COUNT(DISTINCT order_date) as date_distinct,
+    COUNT(*) as total,
+    -- 選択性の推定
+    COUNT(*) / COUNT(DISTINCT customer_id)::float as avg_rows_per_customer,
+    COUNT(*) / COUNT(DISTINCT region)::float as avg_rows_per_region,
+    COUNT(*) / COUNT(DISTINCT status)::float as avg_rows_per_status
+FROM orders;</code></pre>
+    </div>
+    <p><strong>ステップ3: 優先順位の決定</strong></p>
+    <ul>
+        <li>最も頻繁なクエリ（Q1）を優先</li>
+        <li>等価条件と高選択性のカラムを先頭に</li>
+        <li>範囲条件やソート条件を後方に</li>
+    </ul>
+    <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+        <pre><code>-- Q1向け: customer_idが高選択性で等価条件
+CREATE INDEX idx_customer_history ON orders(customer_id, order_date DESC);
+
+-- Q2向け: regionとstatusの両方が等価条件、regionの選択性がやや高い
+CREATE INDEX idx_region_status ON orders(region, status);</code></pre>
+    </div>
+    <p><strong>ステップ4: 検証と調整</strong></p>
+    <p>実際のデータでEXPLAIN ANALYZEを使用して検証します。</p>
+    <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+        <pre><code>EXPLAIN (ANALYZE, BUFFERS) 
+SELECT * FROM orders 
+WHERE customer_id = 100 
+  AND order_date >= '2024-01-01'
+ORDER BY order_date DESC 
+LIMIT 10;</code></pre>
+    </div>
+    <p><strong>確認ポイント</strong></p>
+    <ul>
+        <li>想定したインデックスが使用されているか</li>
+        <li>Seq Scan（全表スキャン）になっていないか</li>
+        <li>Sortステップが発生していないか</li>
+        <li>実行時間が要件を満たしているか</li>
+    </ul>
+
+    <h3>2.4 複合インデックスの注意点</h3>
+    <p><strong>注意点1: インデックスが多すぎるコスト</strong></p>
+    <p>インデックスは検索を高速化しますが、以下のコストがかかります。</p>
+    <ul>
+        <li>ストレージコスト: インデックス自体がディスク容量を消費</li>
+        <li>書き込みコスト: INSERT/UPDATE/DELETE時にインデックスも更新が必要</li>
+        <li>メンテナンスコスト: 定期的なVACUUMやREINDEXが必要</li>
+    </ul>
+    <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+        <pre><code>-- テーブルとインデックスのサイズ確認
+SELECT 
+    pg_size_pretty(pg_relation_size('orders')) as table_size,
+    pg_size_pretty(pg_indexes_size('orders')) as indexes_size,
+    pg_size_pretty(pg_total_relation_size('orders')) as total_size;</code></pre>
+    </div>
+    <p>推奨: 1つのテーブルに対して5〜10個程度のインデックスが目安です。それ以上増やす場合は、本当に必要か慎重に検討してください。</p>
+
+    <p><strong>注意点2: カラム順序の変更は別インデックス</strong></p>
+    <p>(A, B) と (B, A) はまったく異なるインデックスです。両方作成すると、ストレージと更新コストが2倍になります。どちらの順序が必要かを明確にし、本当に両方必要な場合だけ作成してください。</p>
+
+    <p><strong>注意点3: NULL値の扱い</strong></p>
+    <p>PostgreSQLでは、NULLもインデックスに含まれます（他のRDBMSと異なる場合あり）。IS NULLやIS NOT NULLの検索にもインデックスが使えます。</p>
+    <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+        <pre><code>-- NULLを含む検索でもインデックスが有効
+SELECT * FROM orders WHERE cancelled_at IS NOT NULL;</code></pre>
+    </div>
+    <p>ただし、ほとんどの値がNULLの場合は、部分インデックスの使用を検討してください。</p>
+    <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+        <pre><code>-- NULL以外だけをインデックス化（サイズ削減）
+CREATE INDEX idx_cancelled ON orders(cancelled_at)
+WHERE cancelled_at IS NOT NULL;</code></pre>
+    </div>
+
+    <h3>2.5 実験: カラム順序の影響を検証</h3>
+    <p>ここからは実際に手を動かして、カラム順序がパフォーマンスに与える影響を確認していきましょう。</p>
+    <p><strong>実験環境の準備</strong></p>
+    <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+        <pre><code>-- テーブル作成
+DROP TABLE IF EXISTS orders;
+CREATE TABLE orders (
+    order_id SERIAL PRIMARY KEY,
+    customer_id INTEGER NOT NULL,
+    order_date DATE NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    total_amount DECIMAL(10, 2) NOT NULL,
+    region VARCHAR(50) NOT NULL
+);
+
+-- サンプルデータ投入(100万件)
+INSERT INTO orders (customer_id, order_date, status, total_amount, region)
+SELECT 
+    (random() * 10000)::INTEGER + 1,
+    CURRENT_DATE - (random() * 365 * 3)::INTEGER,
+    (ARRAY['pending', 'processing', 'shipped', 'delivered', 'cancelled'])[floor(random() * 5 + 1)],
+    (random() * 10000)::DECIMAL(10, 2),
+    (ARRAY['Tokyo', 'Osaka', 'Nagoya', 'Fukuoka', 'Sapporo'])[floor(random() * 5 + 1)]
+FROM generate_series(1, 1000000);
+
+ANALYZE orders;</code></pre>
+    </div>
+    <p><strong>実験1: status, order_dateの順序</strong></p>
+    <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+        <pre><code>-- インデックス作成
+CREATE INDEX idx_status_date ON orders(status, order_date);
+
+-- クエリ1: 両方のカラムを使用
+EXPLAIN ANALYZE
+SELECT * FROM orders
+WHERE status = 'shipped' 
+  AND order_date >= '2024-01-01';</code></pre>
+    </div>
+    <p><strong>実験2: order_date, statusの順序</strong></p>
+    <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+        <pre><code>-- 別のインデックス作成
+CREATE INDEX idx_date_status ON orders(order_date, status);
+
+-- 同じクエリで比較
+EXPLAIN ANALYZE
+SELECT * FROM orders
+WHERE status = 'shipped' 
+  AND order_date >= '2024-01-01';</code></pre>
+    </div>
+    <p><strong>実験3: 片方のカラムのみ使用</strong></p>
+    <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+        <pre><code>-- statusのみで検索
+EXPLAIN ANALYZE
+SELECT * FROM orders WHERE status = 'shipped';
+
+-- order_dateのみで検索
+EXPLAIN ANALYZE
+SELECT * FROM orders WHERE order_date >= '2024-01-01';</code></pre>
+    </div>
+    <p><strong>観察ポイント</strong></p>
+    <ul>
+        <li>どのインデックスが使用されたか（Index Scan using ...）</li>
+        <li>実行時間（Execution Time）</li>
+        <li>スキャンした行数（rows）</li>
+    </ul>
+    <p><strong>カーディナリティの確認</strong></p>
+    <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+        <pre><code>-- カーディナリティ(distinct値の数)を確認
+SELECT 
+    COUNT(DISTINCT status) as status_cardinality,
+    COUNT(DISTINCT order_date) as date_cardinality,
+    COUNT(DISTINCT region) as region_cardinality,
+    COUNT(*) as total_rows
+FROM orders;</code></pre>
+    </div>
+    <p><strong>考察</strong></p>
+    <p>statusのカーディナリティは5程度 / order_dateのカーディナリティは1000程度。どちらを先頭にすべきか、実験結果と照らし合わせて考えてみましょう。</p>
+
+    <div class="exercise-box">
+        <span class="exercise-title">📝 2.6 演習問題1: 最適な複合インデックスの設計</span>
+        <p>以下のクエリパターンに最適な複合インデックスを設計してください。</p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>-- クエリA: 地域と期間での集計
+SELECT region, COUNT(*), SUM(total_amount)
+FROM orders
+WHERE region = 'Tokyo' 
+  AND order_date BETWEEN '2024-01-01' AND '2024-03-31'
+GROUP BY region;
+
+-- クエリB: 顧客の最近の注文検索
+SELECT * FROM orders
+WHERE customer_id = 1234 
+  AND order_date >= CURRENT_DATE - INTERVAL '30 days'
+ORDER BY order_date DESC
+LIMIT 10;</code></pre>
+        </div>
+        <p><strong>設計のステップ</strong></p>
+        <ul>
+            <li>各クエリの条件を分析: 等価条件は? / 範囲条件は? / ソート条件は?</li>
+            <li>カラムの選択性を考慮: どのカラムが最も絞り込めるか?</li>
+            <li>インデックスを設計</li>
+        </ul>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>-- クエリA用のインデックス
+CREATE INDEX idx_a ON orders(?, ?);
+
+-- クエリB用のインデックス
+CREATE INDEX idx_b ON orders(?, ?);</code></pre>
+        </div>
+        <p><strong>検証</strong></p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>-- クエリAを実行
+EXPLAIN ANALYZE
+SELECT region, COUNT(*), SUM(total_amount)
+FROM orders
+WHERE region = 'Tokyo' 
+  AND order_date BETWEEN '2024-01-01' AND '2024-03-31'
+GROUP BY region;
+
+-- クエリBを実行
+EXPLAIN ANALYZE
+SELECT * FROM orders
+WHERE customer_id = 1234 
+  AND order_date >= CURRENT_DATE - INTERVAL '30 days'
+ORDER BY order_date DESC
+LIMIT 10;</code></pre>
+        </div>
+        <p><strong>確認事項</strong></p>
+        <ul>
+            <li>作成したインデックスが使用されているか?</li>
+            <li>Sortステップが発生していないか?</li>
+            <li>実行時間は許容範囲か?</li>
+        </ul>
+    </div>
+
+    <div class="exercise-box">
+        <span class="exercise-title">📝 2.7 演習問題2: 複雑なクエリへの対応</span>
+        <p>次のような複雑なクエリに対して、最適なインデックス戦略を考えてください。</p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>-- クエリC: ステータスと金額による絞り込み
+SELECT * FROM orders
+WHERE status IN ('processing', 'shipped')
+  AND total_amount >= 5000
+  AND region = 'Tokyo'
+ORDER BY order_date DESC
+LIMIT 100;</code></pre>
+        </div>
+        <p><strong>ヒント</strong></p>
+        <ul>
+            <li>IN句も等価条件として扱える</li>
+            <li>複数の等価条件がある場合、どれを先頭にすべきか?</li>
+            <li>ORDER BYの最適化も考慮する</li>
+        </ul>
+        <p><strong>あなたの設計</strong></p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>-- インデックスを設計
+CREATE INDEX idx_c ON orders(?, ?, ?) DESC;</code></pre>
+        </div>
+        <p><strong>検証と考察</strong></p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>EXPLAIN (ANALYZE, BUFFERS)
+SELECT * FROM orders
+WHERE status IN ('processing', 'shipped')
+  AND total_amount >= 5000
+  AND region = 'Tokyo'
+ORDER BY order_date DESC
+LIMIT 100;</code></pre>
+        </div>
+        <p><strong>考察ポイント</strong></p>
+        <ul>
+            <li>なぜそのカラム順序を選択したか?</li>
+            <li>他の順序と比較してどうか?</li>
+            <li>パフォーマンスは要件を満たしているか?</li>
+        </ul>
+    </div>
+
+    <h3>2.8 まとめ: 複合インデックス設計のチェックリスト</h3>
+    <p>複合インデックスを設計する際は、以下の順序で検討してください。</p>
+    <ul>
+        <li>クエリパターンの特定: どのWHERE条件が頻繁に使われるか</li>
+        <li>等価条件の識別: =で検索されるカラムを先頭候補に</li>
+        <li>選択性の評価: カーディナリティが高いカラムを優先</li>
+        <li>範囲条件の配置: 範囲検索やLIKEは後方に</li>
+        <li>ソート要件の確認: ORDER BYとの整合性</li>
+        <li>最左プレフィックスの活用: 複数のクエリパターンをカバー</li>
+        <li>実測による検証: EXPLAIN ANALYZEで効果を確認</li>
+        <li>コストとの比較: ストレージと更新コストを考慮</li>
+    </ul>
+    <p>この原則に従うことで、効率的で保守しやすい複合インデックスを設計できます。</p>
+
+    <h3>解答例</h3>
+    <div class="answer-content">
+        <p><strong>演習問題1の解答</strong></p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>-- クエリA用(等価条件のregionを先頭に)
+CREATE INDEX idx_a ON orders(region, order_date);
+
+-- クエリB用(customer_idを先頭に、order_dateで範囲検索とソート)
+CREATE INDEX idx_b ON orders(customer_id, order_date DESC);</code></pre>
+        </div>
+        <p>解説: クエリAはregion = 'Tokyo'という等価条件でまず絞り込み、その中でorder_dateの範囲を検索します。クエリBのDESC指定により、ORDER BY order_date DESCが効率化されます。インデックスがすでに降順でソートされているため、追加のソート処理が不要です。</p>
+    </div>
+    <div class="answer-content">
+        <p><strong>演習問題2の解答</strong></p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>CREATE INDEX idx_c ON orders(region, status, order_date DESC);</code></pre>
+        </div>
+        <p>解説: regionとstatusは両方とも等価条件（IN句も等価として扱える）。regionはカーディナリティが低いですが、selectivityは高い（5つの値のうち1つ）。total_amountは範囲条件なので含めませんが、残りの条件で十分絞り込めます。order_date DESCでソートも最適化します。代替案として (status, region, order_date DESC) も有効です。実際のデータ分布とクエリ頻度で決定してください。</p>
+    </div>
+
+</div>
+
+<script>
+// メニューの開閉
+function toggleMenu() {
+    document.getElementById("menu-content").classList.toggle("show");
+}
+// 画面クリックでメニューを閉じる
+window.onclick = function(event) {
+    if (!event.target.matches('#menu-btn')) {
+        var dropdowns = document.getElementsByClassName("menu-content");
+        for (var i = 0; i < dropdowns.length; i++) {
+            var openDropdown = dropdowns[i];
+            if (openDropdown.classList.contains('show')) {
+                openDropdown.classList.remove('show');
+            }
+        }
+    }
+}
+// コピー機能
+function copyCode(button) {
+    const code = button.nextElementSibling.innerText;
+    navigator.clipboard.writeText(code).then(() => {
+        const originalText = button.innerText;
+        button.innerText = "Copied!";
+        setTimeout(() => { button.innerText = originalText; }, 2000);
+    });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,312 @@
+/* --- 1. 基本レイアウト --- */
+html {
+    scroll-behavior: smooth; 
+}
+
+body {
+    font-family: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", sans-serif;
+    line-height: 1.8;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 80px 20px 40px 20px;
+    color: #333;
+    background-color: #f9f9f9;
+}
+
+.btree-image {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    margin: 24px auto;
+}
+
+.btree-image-half {
+    max-width: 50%;
+}
+
+.container {
+    background: #fff;
+    padding: 40px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+    border-radius: 12px;
+}
+
+/* --- 2. 見出しのデザイン --- */
+h1 {
+    border-bottom: 3px solid #0066cc;
+    padding-bottom: 12px;
+    color: #0066cc;
+    text-align: center;
+    margin-bottom: 40px;
+}
+
+h2 {
+    border-left: 6px solid #0066cc;
+    padding: 8px 15px;
+    margin-top: 60px;
+    background: #f0f7ff;
+    color: #004a99;
+    border-radius: 0 4px 4px 0;
+    scroll-margin-top: 100px;
+}
+
+h3 {
+    color: #333;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 5px;
+    margin-top: 40px;
+    font-size: 1.25em;
+    display: flex;
+    align-items: center;
+    scroll-margin-top: 100px;
+}
+
+h3::before {
+    content: "■";
+    color: #0066cc;
+    margin-right: 10px;
+    font-size: 0.8em;
+}
+
+/* --- 3. 固定ナビゲーションメニュー (右上) --- */
+.nav-menu {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1000;
+}
+
+#menu-btn {
+    background: #0066cc;
+    color: white;
+    border: none;
+    padding: 12px 20px;
+    border-radius: 30px;
+    cursor: pointer;
+    font-weight: bold;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+    transition: transform 0.2s, background 0.2s;
+}
+
+#menu-btn:hover {
+    background: #0052a3;
+    transform: scale(1.05);
+}
+
+.menu-content {
+    display: none;
+    position: absolute;
+    top: 55px;
+    right: 0;
+    background: white;
+    width: 300px;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+    border-radius: 10px;
+    padding: 20px;
+    border: 1px solid #eee;
+}
+
+.menu-content.show {
+    display: block;
+}
+
+.menu-content ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.menu-content li {
+    margin-bottom: 8px;
+}
+
+.menu-content > ul > li {
+    border-bottom: 1px solid #f0f0f0;
+    padding-bottom: 5px;
+}
+
+.menu-content a {
+    text-decoration: none;
+    color: #0066cc;
+    font-size: 0.95em;
+    display: block;
+}
+
+.menu-content a:hover {
+    color: #004a99;
+    text-decoration: underline;
+}
+
+/* 階層(小セクション)のインデント */
+.menu-content ul ul {
+    padding-left: 15px;
+    margin-top: 5px;
+}
+
+.menu-content ul ul a {
+    font-size: 0.85em;
+    color: #666;
+}
+
+/* --- 4. コードブロックとコピーボタン --- */
+.code-wrapper {
+    position: relative;
+    margin: 25px 0;
+}
+
+pre {
+    background: #2d2d2d;
+    color: #f8f8f2;
+    padding: 20px;
+    overflow-x: auto;
+    border-radius: 8px;
+    font-size: 0.9em;
+    line-height: 1.5;
+}
+
+code {
+    font-family: Consolas, Monaco, "Courier New", monospace;
+}
+
+.copy-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: #4a5568;
+    color: white;
+    border: none;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.75em;
+    opacity: 0.8;
+    transition: opacity 0.2s, background 0.2s;
+}
+
+.copy-btn:hover {
+    opacity: 1;
+    background: #0066cc;
+}
+
+.copy-btn.copied {
+    background: #48bb78;
+}
+
+/* --- 5. 演習ボックスと詳細表示(details) --- */
+.exercise-box {
+    background: #e8f4fd;
+    border: 1px solid #b6d4fe;
+    padding: 25px;
+    margin: 35px 0;
+    border-radius: 10px;
+}
+
+.exercise-title {
+    font-weight: bold;
+    color: #0056b3;
+    margin-bottom: 12px;
+    display: block;
+    font-size: 1.1em;
+}
+
+details {
+    margin-top: 15px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    background: white;
+    overflow: hidden;
+}
+
+summary {
+    cursor: pointer;
+    padding: 12px 15px;
+    font-weight: bold;
+    background: #f1f1f1;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    user-select: none;
+}
+
+summary::-webkit-details-marker {
+    display: none;
+}
+
+summary::after {
+    content: "▼ 解説を表示";
+    font-size: 0.8em;
+    color: #0066cc;
+}
+
+details[open] summary::after {
+    content: "▲ 閉じる";
+}
+
+.answer-content {
+    padding: 20px;
+    border-top: 1px solid #ddd;
+    background-color: #fff;
+}
+
+/* --- 6. その他装飾 --- */
+.warning {
+    background: #fff3cd;
+    padding: 15px 20px;
+    border-radius: 8px;
+    border: 1px solid #ffeeba;
+    margin: 25px 0;
+    font-size: 0.95em;
+}
+
+.highlight-box {
+    background: #fff3cd;
+    border: 1px solid #ffe08a;
+    padding: 18px 20px;
+    border-radius: 8px;
+    margin: 20px 0 30px 0;
+}
+
+.highlight-box p {
+    margin: 0 0 12px 0;
+}
+
+.highlight-box ul {
+    margin: 0 0 12px 20px;
+}
+
+.highlight-box p:last-child,
+.highlight-box ul:last-child {
+    margin-bottom: 0;
+}
+
+.back-to-top {
+    display: block;
+    text-align: right;
+    font-size: 0.85em;
+    margin-top: 30px;
+    color: #999;
+    text-decoration: none;
+}
+
+.back-to-top:hover {
+    text-decoration: underline;
+}
+
+/* 横長テーブルなどのレスポンシブ対応 */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+}
+
+th, td {
+    border: 1px solid #ddd;
+    padding: 12px;
+    text-align: left;
+}
+
+th {
+    background-color: #f8f9fa;
+}
