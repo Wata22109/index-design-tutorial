@@ -45,7 +45,7 @@
                 <a href="#bplustree">1.1 B+Treeの構造とメリット</a>
                 <ul>
                     <li><a href="#bplustree-what">B+Treeとは</a></li>
-                    <li><a href="#bplustree-diff">B-Treeとの決定的な3つの違い</a></li>
+                    <li><a href="#bplustree-diff">B-Treeとの違い</a></li>
                     <li><a href="#bplustree-benefits">データベース設計におけるメリット</a></li>
                 </ul>
             </li>
@@ -86,7 +86,7 @@
     </ul>
     <p>データベースに対して適切にインデックスを「設計」することが、パフォーマンスを向上させるために必要なのです。</p>
 
-    <h3>インデックスを作成すべきパターン</h3>
+    <h3 id="index-patterns">インデックスを作成すべきパターン</h3>
     <p><strong>レコード数の多いテーブル</strong><br>
         レコード数の少ないテーブルではそもそもフルスキャンした方が高速な場合があります。1万レコード以下であればインデックスの効果は薄いです。しかし、サーバーのスペックなどにもよるため実測しながら決定することが望ましいです。</p>
     <p><strong>カーディナリティの高いカラム</strong><br>
@@ -121,7 +121,7 @@ docker image pull dbgate/dbgate:6.6.3</code></pre>
         <pre><code>docker container run --name pg17 -e POSTGRES_USER=student -e POSTGRES_PASSWORD=secret123 -e POSTGRES_DB=playground -p 5432:5432 -d postgres:17.6</code></pre>
     </div>
 
-    <h3>SQL演習用環境</h3>
+    <h3 id="sql-env">SQL演習用環境</h3>
     <ol>
         <li><strong>リポジトリのクローン</strong>: 演習用教材のGitリポジトリ（<a href="https://github.com/TakeshiWada1980/DB-2025-PostgreSQL.git" target="_blank" rel="noopener">https://github.com/TakeshiWada1980/DB-2025-PostgreSQL.git</a>）をローカルに複製し、VSCodeで開きます。</li>
         <li><strong>依存関係のインストール</strong>: <code>npm i</code>コマンドを実行し、プロジェクトに必要なライブラリをインストールします。</li>
@@ -269,7 +269,7 @@ ROLLBACK;</code></pre>
     <p>B-Treeインデックスは、データを木構造で整理します。100万件あっても、わずか数回の「枝分かれ」を辿るだけで目的のデータに辿り着きます。</p>
     <p>B-Treeのデータ構造について、構成要素・検索処理・ノード分割とマージの観点で整理します。</p>
 
-    <h3>B-Treeの構成要素</h3>
+    <h3 id="btree-elements">B-Treeの構成要素</h3>
     <p>B-Treeは、ルートノード、内部ノード、リーフノードという3つのタイプのノードによって構成される階層的なデータ構造です。</p>
     <img class="btree-image" src="images/B-Tree.png" alt="B-Treeのデータ構造">
     <p>階層構造の頂点に位置するのがルートノードであり、このノードは親を持たず、木構造の出発点となります。</p>
@@ -293,7 +293,25 @@ ROLLBACK;</code></pre>
     <p>B-Treeの重要な性質として、すべてのパス(ルートノードからリーフノードまでの経路)の長さが等しいことが挙げられます。これにより、どのデータを検索するケースでも、ルートノードからリーフノードまでの移動回数は同一になります。この性質により、検索時間の予測が容易になり、安定したパフォーマンスを提供できます。</p>
     <p>B-Treeの検索パフォーマンスは、木の高さに大きく依存します。例として、1000万件のデータを保存するB-Treeであっても、1ノードあたり100個のキーを保存できるケースでは、高さは4程度に抑えられます。これは、各レベルでの検索に必要な照合回数が最大でも7回程度(100個のキーに対する二分探索)であることを意味します。</p>
 
-    <h3>B-Treeのノード分割とマージの処理</h3>
+    <div class="highlight-box">
+        <p><strong>コラム：pageinspectでB-Treeの深さを確認する</strong></p>
+        <p>PostgreSQLの拡張機能 <code>pageinspect</code> を使うと、実際のインデックスが何階層のB-Treeになっているかを確認できます。以下のSQLを順に実行してください（パフォーマンスの計測ではROLLBACKでインデックスが破棄されるため、ここで改めてインデックスを作成します）。</p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>-- 1. インデックスを作成（未作成の場合）
+CREATE INDEX IF NOT EXISTS idx_orders_customer_id ON orders(customer_id);
+ANALYZE orders;
+
+-- 2. 拡張機能を有効化
+CREATE EXTENSION IF NOT EXISTS pageinspect;
+
+-- 3. インデックスのメタデータを見て、木の深さ(level)を確認する
+SELECT * FROM bt_metap('idx_orders_customer_id');</code></pre>
+        </div>
+        <p><code>level</code> 列に表示される値が、ルートからリーフまでの階層数（深さ）です。100万件の <code>orders</code> テーブルでは、おおよそ2〜3程度になることが多く、これが「数回の枝分かれで目的のデータに辿り着く」ことを数値で裏付けます。</p>
+    </div>
+
+    <h3 id="btree-split-merge">B-Treeのノード分割とマージの処理</h3>
     <p>B-Treeでは、データの追加や削除に伴い、ノードの分割やマージが実施されます。これらの処理は、B-Treeのバランスを維持し、効率的な検索パフォーマンスを保つために重要な役割を担います。</p>
     <p>ノードの分割は、新規データを追加する際にノードが最大容量に到達した場合に実施されます。例として、最大4つのキーを保存できるノードに、すでに4つのキー[10, 20, 30, 40]が保存されている状態で、新規キー「25」を追加するケースを考えます。このノードはすでに最大容量に到達しているため、分割が必要になります。</p>
     <p>分割の処理は以下のように実施されます。まず、ノード内のキーを順序に従ってソートします。この例では[10, 20, 25, 30, 40]となります。次に、この5つのキーの中央値「25」を選択し、これを親ノードへ昇格させます。残りのキーのうち、「25」より小さいキー[10, 20]は元のノードに保持し、大きいキー[30, 40]は新しく生成したノードへ移動させます。</p>
@@ -311,7 +329,7 @@ ROLLBACK;</code></pre>
     <h3 id="bplustree-what">B+Treeとは</h3>
     <p>B+Treeは、B-Treeの構造をベースにしつつ、「データの持ち方」と「ノード間のつながり」を改良したデータ構造です。現在のリレーショナルデータベース（MySQLのInnoDB、PostgreSQLなど）のインデックスにおいて、最も一般的に採用されています。</p>
 
-    <h3>B-Treeとの違い</h3>
+    <h3 id="bplustree-diff">B-Treeとの違い</h3>
     <p>B-TreeとB+Treeの最大の違いは、「サテライトデータ（実際のレコードやポインタ）」をどこに配置するかにあります。</p>
     <ul>
         <li><strong>データはリーフノード（最下層）にのみ集約</strong>: B-Treeでは各内部ノードもデータを持っていましたが、B+Treeでは内部ノードは「検索用のキー（枝分かれの指標）」のみを保持し、実際のデータ（またはデータへのポインタ）はすべて最下層のリーフノードに格納します。</li>
@@ -690,7 +708,7 @@ LIMIT 10;</code></pre>
         </details>
     </div>
 
-    <h3>2.3 複合インデックス設計の実践的アプローチ</h3>
+    <h3 id="composite-practice">2.3 複合インデックス設計の実践的アプローチ</h3>
     <div class="exercise-box">
         <span class="exercise-title">📝 演習：複合インデックス設計の実践的アプローチ</span>
         <p><strong>ステップ1: クエリパターンの分析</strong></p>
@@ -799,7 +817,7 @@ CREATE INDEX idx_cancelled ON orders(cancelled_at)
 WHERE cancelled_at IS NOT NULL;</code></pre>
     </div>
 
-    <h3>2.5 演習問題集</h3>
+    <h3 id="exercises">2.5 演習問題集</h3>
     <div class="exercise-box">
         <span class="exercise-title">📝 演習問題1: 最適な複合インデックスの設計</span>
         <p>以下のクエリパターンに最適な複合インデックスを設計してください。</p>
