@@ -146,6 +146,19 @@ ANALYZE orders;</code></pre>
             <li>インデックスを作成した後</li>
             <li>データの傾向が大きく変わった後</li>
         </ul>
+
+        <p><strong>出力の見方</strong></p>
+        <p>ANALYZEを実行すると、画面上には <code>ANALYZE</code> と1行だけ表示されます。これは統計情報の収集が正常に完了したことを意味します。収集された統計はDB内部に保存され、その後のクエリ計画の作成時に自動的に利用されます。</p>
+        <p>統計情報の効果を確認するには、<code>EXPLAIN ANALYZE</code> 付きでクエリを実行します。主な出力項目は以下の通りです。</p>
+        <ul>
+            <li><strong>Planning Time</strong>: 実行計画を立てるまでの時間（ミリ秒）</li>
+            <li><strong>Execution Time</strong>: クエリの実際の実行時間（ミリ秒）。パフォーマンス比較の際に注目する</li>
+            <li><strong>rows</strong>: 各行の処理でスキャン（取得）した行数。少ないほど効率的</li>
+            <li><strong>Seq Scan</strong>: 全表スキャン。インデックスを使わず、テーブル全体を順に読む</li>
+            <li><strong>Index Scan</strong>: インデックススキャン。インデックスを使って絞り込んでからテーブルを参照する。インデックス名（<code>using idx_xxx</code>）も表示される</li>
+            <li><strong>Sort</strong>: ソート処理が発生している。インデックスのソート順序を活用できればこのステップは省略される</li>
+        </ul>
+        <p>ANALYZEを実行していないと、オプティマイザが誤った計画を選び、<code>rows</code> の見積もりが大きく外れることがあります。必ずデータ投入後・インデックス作成後に実行してください。</p>
     </div>
     <h2 id="performance">パフォーマンスの計測</h2>
     <div class="exercise-box">
@@ -362,6 +375,40 @@ SELECT * FROM orders WHERE status = 'shipped' AND order_date >= '2024-01-01';</c
                 <p>「Index Scan using idx_bad」ではスキャン行数が多くなり、実行時間も長くなります。「Index Scan using idx_good」では、status='shipped'の部分だけを効率的にスキャンするため、行数・実行時間ともに大幅に改善することを確認してください。</p>
             </div>
         </details>
+        <p><strong>演習：カラム順序を答えよ</strong></p>
+        <p>以下の各クエリに対して、原則1に基づき複合インデックスのカラム順序を考え、答えなさい。</p>
+        <p><strong>問題1</strong>　クエリ: <code>WHERE status = 'delivered' AND order_date >= '2024-06-01'</code></p>
+        <details>
+            <summary>解答</summary>
+            <div class="answer-content">
+                <p><code>CREATE INDEX idx ON orders(status, order_date);</code></p>
+                <p>等価条件の status を先頭に、範囲条件の order_date を後に配置する。</p>
+            </div>
+        </details>
+        <p><strong>問題2</strong>　クエリ: <code>WHERE region = 'Osaka' AND order_date BETWEEN '2024-01-01' AND '2024-12-31'</code></p>
+        <details>
+            <summary>解答</summary>
+            <div class="answer-content">
+                <p><code>CREATE INDEX idx ON orders(region, order_date);</code></p>
+                <p>等価条件の region を先頭に、範囲条件の order_date を後に配置する。</p>
+            </div>
+        </details>
+        <p><strong>問題3</strong>　クエリ: <code>WHERE customer_id = 1234 AND status = 'pending' AND order_date > '2024-01-01'</code></p>
+        <details>
+            <summary>解答</summary>
+            <div class="answer-content">
+                <p><code>CREATE INDEX idx ON orders(customer_id, status, order_date);</code></p>
+                <p>等価条件の customer_id, status を先頭に並べ、範囲条件の order_date を最後に配置する。</p>
+            </div>
+        </details>
+        <p><strong>問題4</strong>　クエリ: <code>WHERE total_amount >= 5000 AND region = 'Tokyo'</code></p>
+        <details>
+            <summary>解答</summary>
+            <div class="answer-content">
+                <p><code>CREATE INDEX idx ON orders(region, total_amount);</code></p>
+                <p>等価条件の region を先頭に、範囲条件の total_amount を後に配置する。</p>
+            </div>
+        </details>
     </div>
 
     <p><strong>原則2: 選択性(多重度)が高いカラムを優先</strong></p>
@@ -440,6 +487,40 @@ WHERE customer_id = 5000 AND status = 'shipped' AND order_date >= '2024-01-01';<
             <summary>確認ポイント</summary>
             <div class="answer-content">
                 <p>idx_low_selectiveでは、status='shipped'の約20万行をスキャンしてからcustomer_idで絞り込むため、処理行数が多くなります。idx_selectiveでは、まずcustomer_id=5000の約100行に絞り込み、その中でstatusとorder_dateを条件に使うため、スキャン行数が大幅に少なくなります。実行時間の差も確認してください。</p>
+            </div>
+        </details>
+        <p><strong>演習：カラム順序を答えよ</strong></p>
+        <p>以下の各クエリに対して、原則2に基づき複合インデックスのカラム順序を考え、答えなさい。カラムの選択性（カーディナリティ）を考慮すること。</p>
+        <p><strong>問題1</strong>　クエリ: <code>WHERE customer_id = 5000 AND status = 'shipped'</code></p>
+        <details>
+            <summary>解答</summary>
+            <div class="answer-content">
+                <p><code>CREATE INDEX idx ON orders(customer_id, status);</code></p>
+                <p>customer_id は約1万種で選択性が高く、status は5種で選択性が低い。高選択性の customer_id を先頭に配置する。</p>
+            </div>
+        </details>
+        <p><strong>問題2</strong>　クエリ: <code>WHERE region = 'Tokyo' AND status = 'delivered' AND order_date >= '2024-01-01'</code></p>
+        <details>
+            <summary>解答</summary>
+            <div class="answer-content">
+                <p><code>CREATE INDEX idx ON orders(region, status, order_date);</code> または <code>(status, region, order_date)</code></p>
+                <p>region と status はどちらも5種程度で選択性は同程度。order_date は範囲条件のため後方に配置。前半は等価条件を並べる。</p>
+            </div>
+        </details>
+        <p><strong>問題3</strong>　クエリ: <code>WHERE status = 'cancelled' AND customer_id = 8000 AND order_date BETWEEN '2024-01-01' AND '2024-12-31'</code></p>
+        <details>
+            <summary>解答</summary>
+            <div class="answer-content">
+                <p><code>CREATE INDEX idx ON orders(customer_id, status, order_date);</code></p>
+                <p>customer_id が最も選択性が高いため先頭。次に status、最後に範囲条件の order_date。</p>
+            </div>
+        </details>
+        <p><strong>問題4</strong>　クエリ: <code>WHERE region = 'Osaka' AND customer_id = 3000</code></p>
+        <details>
+            <summary>解答</summary>
+            <div class="answer-content">
+                <p><code>CREATE INDEX idx ON orders(customer_id, region);</code></p>
+                <p>customer_id（約1万種）は region（5種）より選択性が高いため、customer_id を先頭に配置する。</p>
             </div>
         </details>
     </div>
