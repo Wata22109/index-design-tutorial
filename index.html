@@ -23,7 +23,7 @@
 
 <div class="container">
     <h1 id="intro">PostgreSQL インデックス設計 チュートリアル</h1>
-    <p>データベースのパフォーマンスは、クエリの書き方以上に「インデックス設計」で決まります。100万件のデータを用いて、その圧倒的な差を体感しましょう。</p>
+    <p>データベースのパフォーマンスは、クエリの書き方以上に「インデックス設計」で決まります。</p>
 
     <h2 id="prep">インデックス設計とは</h2>
     <p>データベースにおけるインデックス設計とは、膨大なデータから目的の情報を素早く見つけるための「索引」を、どのデータに対して、どのように作成するかを計画することです。インデックスを適切に設計すると、検索速度が劇的に向上しますが、闇雲に作成すると逆にシステムのパフォーマンスを下げてしまうこともあります。</p>
@@ -93,7 +93,7 @@ docker image pull dbgate/dbgate:6.6.3</code></pre>
     </ol>
 
     <h2 id="prep">事前準備：データ生成 (init_data.sql)</h2>
-    <p>まずは実験台となる100万件の注文履歴データを作成します。2章の実験でも同じ <code>orders</code> テーブルを使用します。</p>
+    <p>まずは実験台となる100万件の注文履歴データを作成します。2章の演習でも同じ <code>orders</code> テーブルを使用します。</p>
     <p>貼り付けて実行してください。</p>
     <div class="code-wrapper">
         <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
@@ -307,26 +307,64 @@ ROLLBACK;</code></pre>
         <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
         <pre><code>-- 良い例: 等価条件(status)を先頭に
 CREATE INDEX idx_good ON orders(status, order_date);
+ANALYZE orders;
 
 -- このクエリは効率的
 SELECT * FROM orders 
 WHERE status = 'shipped'  -- 等価条件でまず絞り込み
   AND order_date >= '2024-01-01';  -- 残りの範囲を検索</code></pre>
     </div>
-    <p>idx_goodを使用すると、インデックス内で「statusが'shipped'」の部分だけを特定し、その中でorder_dateの条件に合う行を探します。</p>
+    <p>「idx_good」を使用すると、インデックス内で「statusが'shipped'」の部分だけを特定し、その中でorder_dateの条件に合う行を探します。</p>
     <div class="code-wrapper">
         <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
         <pre><code>-- 悪い例: 範囲条件(order_date)を先頭に
 CREATE INDEX idx_bad ON orders(order_date, status);
+ANALYZE orders;
 
 -- 同じクエリでも非効率
 SELECT * FROM orders 
 WHERE status = 'shipped'
   AND order_date >= '2024-01-01';</code></pre>
     </div>
-    <p>idx_badを使用すると、order_date &gt;= '2024-01-01' の範囲全体をスキャンし、その後各行でstatus = 'shipped'かどうかを確認する必要があります。</p>
+    <p>「idx_bad」を使用すると、order_date &gt;= '2024-01-01' の範囲全体をスキャンし、その後各行でstatus = 'shipped'かどうかを確認する必要があります。</p>
 
-    <p><strong>原則2: 選択性(Selectivity)が高いカラムを優先</strong></p>
+    <div class="exercise-box">
+        <span class="exercise-title">📝 演習</span>
+        <p>等価条件を先頭にした場合と範囲条件を先頭にした場合の実行計画・実行時間を比較しましょう。</p>
+        <p><strong>ステップ1</strong>：悪い順序のインデックスで計測</p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>-- 既存インデックスを削除し、悪い順序で作成
+DROP INDEX IF EXISTS idx_good;
+DROP INDEX IF EXISTS idx_bad;
+CREATE INDEX idx_bad ON orders(order_date, status);
+ANALYZE orders;
+
+-- 実行計画と実行時間を確認
+EXPLAIN ANALYZE
+SELECT * FROM orders WHERE status = 'shipped' AND order_date >= '2024-01-01';</code></pre>
+        </div>
+        <p><strong>ステップ2</strong>：良い順序のインデックスで計測</p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>-- 悪いインデックスを削除し、良い順序で作成
+DROP INDEX idx_bad;
+CREATE INDEX idx_good ON orders(status, order_date);
+ANALYZE orders;
+
+-- 同じクエリで実行計画と実行時間を確認
+EXPLAIN ANALYZE
+SELECT * FROM orders WHERE status = 'shipped' AND order_date >= '2024-01-01';</code></pre>
+        </div>
+        <details>
+            <summary>確認ポイント</summary>
+            <div class="answer-content">
+                <p>「Index Scan using idx_bad」ではスキャン行数が多くなり、実行時間も長くなります。「Index Scan using idx_good」では、status='shipped'の部分だけを効率的にスキャンするため、行数・実行時間ともに大幅に改善することを確認してください。</p>
+            </div>
+        </details>
+    </div>
+
+    <p><strong>原則2: 選択性(多重度)が高いカラムを優先</strong></p>
     <p>選択性とは、「そのカラムの条件でどれだけデータを絞り込めるか」を示す指標です。選択性が高いほど、少ない行数に絞り込めます。</p>
     <div class="code-wrapper">
         <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
@@ -351,6 +389,7 @@ FROM orders;</code></pre>
         <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
         <pre><code>-- 選択性を考慮した順序
 CREATE INDEX idx_selective ON orders(customer_id, status, order_date);
+ANALYZE orders;
 -- customer_id(高選択性) → status(低選択性) → order_date(範囲)
 
 -- このクエリは効率的
@@ -360,14 +399,60 @@ WHERE customer_id = 5000    -- まず100行程度に絞り込み
   AND order_date >= '2024-01-01';  -- 最終的に数行に</code></pre>
     </div>
 
+    <div class="exercise-box">
+        <span class="exercise-title">📝 演習</span>
+        <p>選択性の高いカラム（customer_id）を先頭にした場合と、低いカラム（status）を先頭にした場合のスキャン行数を比較しましょう。</p>
+        <p><strong>ステップ1</strong>：カーディナリティを確認</p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>SELECT 
+    COUNT(DISTINCT customer_id) as customer_cardinality,
+    COUNT(DISTINCT status) as status_cardinality,
+    COUNT(*) as total_rows
+FROM orders;</code></pre>
+        </div>
+        <p><strong>ステップ2</strong>：選択性が低い順序（status, customer_id）で計測</p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>-- statusを先頭にしたインデックス（選択性が低い）
+DROP INDEX IF EXISTS idx_selective;
+DROP INDEX IF EXISTS idx_low_selective;
+CREATE INDEX idx_low_selective ON orders(status, customer_id);
+ANALYZE orders;
+
+EXPLAIN ANALYZE
+SELECT * FROM orders 
+WHERE customer_id = 5000 AND status = 'shipped' AND order_date >= '2024-01-01';</code></pre>
+        </div>
+        <p><strong>ステップ3</strong>：選択性が高い順序（customer_id, status, order_date）で計測</p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>-- customer_idを先頭にしたインデックス（選択性が高い）
+DROP INDEX idx_low_selective;
+CREATE INDEX idx_selective ON orders(customer_id, status, order_date);
+ANALYZE orders;
+
+EXPLAIN ANALYZE
+SELECT * FROM orders 
+WHERE customer_id = 5000 AND status = 'shipped' AND order_date >= '2024-01-01';</code></pre>
+        </div>
+        <details>
+            <summary>確認ポイント</summary>
+            <div class="answer-content">
+                <p>idx_low_selectiveでは、status='shipped'の約20万行をスキャンしてからcustomer_idで絞り込むため、処理行数が多くなります。idx_selectiveでは、まずcustomer_id=5000の約100行に絞り込み、その中でstatusとorder_dateを条件に使うため、スキャン行数が大幅に少なくなります。実行時間の差も確認してください。</p>
+            </div>
+        </details>
+    </div>
+
     <p><strong>原則3: 使用頻度を考慮（最左プレフィックスルール）</strong></p>
     <p>すべてのクエリが全てのカラムを使用するとは限りません。インデックスの最左プレフィックスルールにより、インデックスの左側（先頭）のカラムだけでも利用できます。</p>
-    <p>最左プレフィックスルールとは: (A, B, C) という複合インデックスは、以下の検索条件で利用可能です: A / A, B / A, B, C。B、C、B, Cは利用できません（または部分的にしか利用できません）。</p>
-    <p>これは、電話帳で「姓」が分かれば検索できるが、「名」だけでは検索できないのと同じ理屈です。</p>
+    <p>最左プレフィックスルールとは: (A, B, C) という複合インデックスは、以下の検索条件で利用可能です: <br/>A / A, B / A, B, C。<br/> B、C、B, Cは利用できません（または部分的にしか利用できません）。</p>
+
     <p>実用例:</p>
     <div class="code-wrapper">
         <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
         <pre><code>CREATE INDEX idx_multi_use ON orders(customer_id, order_date, status);
+ANALYZE orders;
 
 -- ✓ インデックスを完全に利用
 SELECT * FROM orders WHERE customer_id = 100 AND order_date >= '2024-01-01' AND status = 'shipped';
@@ -386,12 +471,46 @@ SELECT * FROM orders WHERE status = 'shipped';</code></pre>
     </div>
     <p>したがって、最も頻繁に単独で検索されるカラムを先頭に配置すると、複数のクエリパターンに対応できます。</p>
 
+    <div class="exercise-box">
+        <span class="exercise-title">📝 演習</span>
+        <p>最左プレフィックスルールにより、先頭カラムを使うクエリはインデックスを利用し、先頭を使わないクエリはSeq Scanになることを確認しましょう。</p>
+        <p><strong>ステップ1</strong>：複合インデックスを用意</p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>DROP INDEX IF EXISTS idx_multi_use;
+CREATE INDEX idx_multi_use ON orders(customer_id, order_date, status);
+ANALYZE orders;</code></pre>
+        </div>
+        <p><strong>ステップ2</strong>：先頭カラム（customer_id）を使用するクエリ</p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>EXPLAIN ANALYZE SELECT * FROM orders WHERE customer_id = 100;</code></pre>
+        </div>
+        <p><strong>ステップ3</strong>：先頭カラムを使わないクエリ（order_dateのみ</p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>EXPLAIN ANALYZE SELECT * FROM orders WHERE order_date >= '2024-01-01';</code></pre>
+        </div>
+        <p><strong>ステップ4</strong>：先頭カラムを使わないクエリ（statusのみ</p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>EXPLAIN ANALYZE SELECT * FROM orders WHERE status = 'shipped';</code></pre>
+        </div>
+        <details>
+            <summary>確認ポイント</summary>
+            <div class="answer-content">
+                <p>ステップ2では「Index Scan using idx_multi_use」が表示され、少数行のスキャンで高速に完了します。ステップ3・4では「Seq Scan on orders」が表示され、約100万行をスキャンするため実行時間が長くなります。同じインデックスでも、検索条件に先頭カラムが含まれているかどうかで結果が大きく異なることを確認してください。</p>
+            </div>
+        </details>
+    </div>
+
     <p><strong>原則4: ソート(ORDER BY)との関連性</strong></p>
     <p>複合インデックスは、カラムの順序でソート済みのデータ構造です。この特性を活用すると、ORDER BY句の処理を高速化できます。</p>
     <div class="code-wrapper">
         <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
         <pre><code>-- インデックス作成
 CREATE INDEX idx_sort ON orders(customer_id, order_date DESC);
+ANALYZE orders;
 
 -- このクエリではソート処理が不要（インデックスがすでにソート済み）
 SELECT * FROM orders
@@ -403,13 +522,55 @@ LIMIT 10;</code></pre>
     <p>注意点: PostgreSQLでは、インデックス作成時に各カラムのASC/DESCを指定できます。</p>
     <div class="code-wrapper">
         <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
-        <pre><code>CREATE INDEX idx_custom_sort ON orders(region ASC, order_date DESC, total_amount DESC);</code></pre>
+        <pre><code>CREATE INDEX idx_custom_sort ON orders(region ASC, order_date DESC, total_amount DESC);
+ANALYZE orders;</code></pre>
     </div>
     <p>これにより、ORDER BY region ASC, order_date DESC, total_amount DESC というソート順序に最適化されます。</p>
 
+    <div class="exercise-box">
+        <span class="exercise-title">📝 演習</span>
+        <p>インデックスのソート順序とORDER BYが一致する場合（Sortステップなし）と、一致しない場合（Sortステップあり）の実行計画を比較しましょう。</p>
+        <p><strong>ステップ1</strong>：ORDER BYと整合したインデックスがない状態で計測（Sortが発生）</p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>-- ORDER BYと整合していないインデックス、またはインデックスなしで計測
+DROP INDEX IF EXISTS idx_sort;
+CREATE INDEX idx_customer_only ON orders(customer_id);
+ANALYZE orders;
+
+EXPLAIN ANALYZE
+SELECT * FROM orders
+WHERE customer_id = 100
+ORDER BY order_date DESC
+LIMIT 10;</code></pre>
+        </div>
+        <p><strong>ステップ2</strong>：ORDER BYと整合したインデックスで計測（Sortが不要）</p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>-- order_date DESCを含むインデックスでORDER BYが最適化される
+DROP INDEX idx_customer_only;
+CREATE INDEX idx_sort ON orders(customer_id, order_date DESC);
+ANALYZE orders;
+
+EXPLAIN ANALYZE
+SELECT * FROM orders
+WHERE customer_id = 100
+ORDER BY order_date DESC
+LIMIT 10;</code></pre>
+        </div>
+        <details>
+            <summary>確認ポイント</summary>
+            <div class="answer-content">
+                <p>ステップ1では実行計画に「Sort」ステップが含まれ、メモリ上でソート処理が行われます。ステップ2では「Sort」が現れず、「Index Scan Backward using idx_sort」のように、インデックスがすでにorder_date DESCで並んでいるため、ソート処理がスキップされます。LIMIT 10の取得も効率化され、実行時間の短縮を確認できます。</p>
+            </div>
+        </details>
+    </div>
+
     <h3>2.3 複合インデックス設計の実践的アプローチ</h3>
-    <p><strong>ステップ1: クエリパターンの分析</strong></p>
-    <p>まず、アプリケーションで実行される主要なクエリパターンを特定します。</p>
+    <div class="exercise-box">
+        <span class="exercise-title">📝 演習：複合インデックス設計の実践的アプローチ</span>
+        <p><strong>ステップ1: クエリパターンの分析</strong></p>
+        <p>まず、アプリケーションで実行される主要なクエリパターンを特定します。</p>
     <div class="code-wrapper">
         <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
         <pre><code>-- よくあるクエリパターンをリストアップ
@@ -451,7 +612,8 @@ FROM orders;</code></pre>
 CREATE INDEX idx_customer_history ON orders(customer_id, order_date DESC);
 
 -- Q2向け: regionとstatusの両方が等価条件、regionの選択性がやや高い
-CREATE INDEX idx_region_status ON orders(region, status);</code></pre>
+CREATE INDEX idx_region_status ON orders(region, status);
+ANALYZE orders;</code></pre>
     </div>
     <p><strong>ステップ4: 検証と調整</strong></p>
     <p>実際のデータでEXPLAIN ANALYZEを使用して検証します。</p>
@@ -464,13 +626,18 @@ WHERE customer_id = 100
 ORDER BY order_date DESC 
 LIMIT 10;</code></pre>
     </div>
-    <p><strong>確認ポイント</strong></p>
-    <ul>
-        <li>想定したインデックスが使用されているか</li>
-        <li>Seq Scan（全表スキャン）になっていないか</li>
-        <li>Sortステップが発生していないか</li>
-        <li>実行時間が要件を満たしているか</li>
-    </ul>
+    <details>
+        <summary>確認ポイント</summary>
+        <div class="answer-content">
+            <ul>
+                <li>想定したインデックスが使用されているか</li>
+                <li>Seq Scan（全表スキャン）になっていないか</li>
+                <li>Sortステップが発生していないか</li>
+                <li>実行時間が要件を満たしているか</li>
+            </ul>
+        </div>
+    </details>
+    </div>
 
     <h3>2.4 複合インデックスの注意点</h3>
     <p><strong>注意点1: インデックスが多すぎるコスト</strong></p>
@@ -508,91 +675,9 @@ CREATE INDEX idx_cancelled ON orders(cancelled_at)
 WHERE cancelled_at IS NOT NULL;</code></pre>
     </div>
 
-    <h3>2.5 実験: カラム順序の影響を検証</h3>
-    <p>ここからは実際に手を動かして、カラム順序がパフォーマンスに与える影響を確認していきましょう。</p>
-    <p><strong>実験環境の準備</strong></p>
-    <div class="code-wrapper">
-        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
-        <pre><code>-- テーブル作成
-DROP TABLE IF EXISTS orders;
-CREATE TABLE orders (
-    order_id SERIAL PRIMARY KEY,
-    customer_id INTEGER NOT NULL,
-    order_date DATE NOT NULL,
-    status VARCHAR(20) NOT NULL,
-    total_amount DECIMAL(10, 2) NOT NULL,
-    region VARCHAR(50) NOT NULL
-);
-
--- サンプルデータ投入(100万件)
-INSERT INTO orders (customer_id, order_date, status, total_amount, region)
-SELECT 
-    (random() * 10000)::INTEGER + 1,
-    CURRENT_DATE - (random() * 365 * 3)::INTEGER,
-    (ARRAY['pending', 'processing', 'shipped', 'delivered', 'cancelled'])[floor(random() * 5 + 1)],
-    (random() * 10000)::DECIMAL(10, 2),
-    (ARRAY['Tokyo', 'Osaka', 'Nagoya', 'Fukuoka', 'Sapporo'])[floor(random() * 5 + 1)]
-FROM generate_series(1, 1000000);
-
-ANALYZE orders;</code></pre>
-    </div>
-    <p><strong>実験1: status, order_dateの順序</strong></p>
-    <div class="code-wrapper">
-        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
-        <pre><code>-- インデックス作成
-CREATE INDEX idx_status_date ON orders(status, order_date);
-
--- クエリ1: 両方のカラムを使用
-EXPLAIN ANALYZE
-SELECT * FROM orders
-WHERE status = 'shipped' 
-  AND order_date >= '2024-01-01';</code></pre>
-    </div>
-    <p><strong>実験2: order_date, statusの順序</strong></p>
-    <div class="code-wrapper">
-        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
-        <pre><code>-- 別のインデックス作成
-CREATE INDEX idx_date_status ON orders(order_date, status);
-
--- 同じクエリで比較
-EXPLAIN ANALYZE
-SELECT * FROM orders
-WHERE status = 'shipped' 
-  AND order_date >= '2024-01-01';</code></pre>
-    </div>
-    <p><strong>実験3: 片方のカラムのみ使用</strong></p>
-    <div class="code-wrapper">
-        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
-        <pre><code>-- statusのみで検索
-EXPLAIN ANALYZE
-SELECT * FROM orders WHERE status = 'shipped';
-
--- order_dateのみで検索
-EXPLAIN ANALYZE
-SELECT * FROM orders WHERE order_date >= '2024-01-01';</code></pre>
-    </div>
-    <p><strong>観察ポイント</strong></p>
-    <ul>
-        <li>どのインデックスが使用されたか（Index Scan using ...）</li>
-        <li>実行時間（Execution Time）</li>
-        <li>スキャンした行数（rows）</li>
-    </ul>
-    <p><strong>カーディナリティの確認</strong></p>
-    <div class="code-wrapper">
-        <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
-        <pre><code>-- カーディナリティ(distinct値の数)を確認
-SELECT 
-    COUNT(DISTINCT status) as status_cardinality,
-    COUNT(DISTINCT order_date) as date_cardinality,
-    COUNT(DISTINCT region) as region_cardinality,
-    COUNT(*) as total_rows
-FROM orders;</code></pre>
-    </div>
-    <p><strong>考察</strong></p>
-    <p>statusのカーディナリティは5程度 / order_dateのカーディナリティは1000程度。どちらを先頭にすべきか、実験結果と照らし合わせて考えてみましょう。</p>
-
+    <h3>2.5 演習問題集</h3>
     <div class="exercise-box">
-        <span class="exercise-title">📝 2.6 演習問題1: 最適な複合インデックスの設計</span>
+        <span class="exercise-title">📝 演習問題1: 最適な複合インデックスの設計</span>
         <p>以下のクエリパターンに最適な複合インデックスを設計してください。</p>
         <div class="code-wrapper">
             <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
@@ -610,20 +695,7 @@ WHERE customer_id = 1234
 ORDER BY order_date DESC
 LIMIT 10;</code></pre>
         </div>
-        <p><strong>設計のステップ</strong></p>
-        <ul>
-            <li>各クエリの条件を分析: 等価条件は? / 範囲条件は? / ソート条件は?</li>
-            <li>カラムの選択性を考慮: どのカラムが最も絞り込めるか?</li>
-            <li>インデックスを設計</li>
-        </ul>
-        <div class="code-wrapper">
-            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
-            <pre><code>-- クエリA用のインデックス
-CREATE INDEX idx_a ON orders(?, ?);
 
--- クエリB用のインデックス
-CREATE INDEX idx_b ON orders(?, ?);</code></pre>
-        </div>
         <p><strong>検証</strong></p>
         <div class="code-wrapper">
             <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
@@ -649,10 +721,21 @@ LIMIT 10;</code></pre>
             <li>Sortステップが発生していないか?</li>
             <li>実行時間は許容範囲か?</li>
         </ul>
-    </div>
+        <details>
+            <summary>演習問題1の解答例</summary>
+            <div class="answer-content">
+                <div class="code-wrapper">
+                    <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+                    <pre><code>-- クエリA用(等価条件のregionを先頭に)
+CREATE INDEX idx_a ON orders(region, order_date);
 
-    <div class="exercise-box">
-        <span class="exercise-title">📝 2.7 演習問題2: 複雑なクエリへの対応</span>
+-- クエリB用(customer_idを先頭に、order_dateで範囲検索とソート)
+CREATE INDEX idx_b ON orders(customer_id, order_date DESC);</code></pre>
+                </div>
+                <p>解説: クエリAはregion = 'Tokyo'という等価条件でまず絞り込み、その中でorder_dateの範囲を検索します。クエリBのDESC指定により、ORDER BY order_date DESCが効率化されます。インデックスがすでに降順でソートされているため、追加のソート処理が不要です。</p>
+            </div>
+        </details>
+        <span class="exercise-title" style="display: block; margin-top: 1.5em;">📝 演習問題2: 複雑なクエリへの対応</span>
         <p>次のような複雑なクエリに対して、最適なインデックス戦略を考えてください。</p>
         <div class="code-wrapper">
             <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
@@ -663,18 +746,6 @@ WHERE status IN ('processing', 'shipped')
   AND region = 'Tokyo'
 ORDER BY order_date DESC
 LIMIT 100;</code></pre>
-        </div>
-        <p><strong>ヒント</strong></p>
-        <ul>
-            <li>IN句も等価条件として扱える</li>
-            <li>複数の等価条件がある場合、どれを先頭にすべきか?</li>
-            <li>ORDER BYの最適化も考慮する</li>
-        </ul>
-        <p><strong>あなたの設計</strong></p>
-        <div class="code-wrapper">
-            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
-            <pre><code>-- インデックスを設計
-CREATE INDEX idx_c ON orders(?, ?, ?) DESC;</code></pre>
         </div>
         <p><strong>検証と考察</strong></p>
         <div class="code-wrapper">
@@ -693,9 +764,19 @@ LIMIT 100;</code></pre>
             <li>他の順序と比較してどうか?</li>
             <li>パフォーマンスは要件を満たしているか?</li>
         </ul>
+        <details>
+            <summary>演習問題2の解答例</summary>
+            <div class="answer-content">
+                <div class="code-wrapper">
+                    <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+                    <pre><code>CREATE INDEX idx_c ON orders(region, status, order_date DESC);</code></pre>
+                </div>
+                <p>解説: regionとstatusは両方とも等価条件（IN句も等価として扱える）。regionはカーディナリティが低いですが、selectivityは高い（5つの値のうち1つ）。total_amountは範囲条件なので含めませんが、残りの条件で十分絞り込めます。order_date DESCでソートも最適化します。代替案として (status, region, order_date DESC) も有効です。実際のデータ分布とクエリ頻度で決定してください。</p>
+            </div>
+        </details>
     </div>
 
-    <h3>2.8 まとめ: 複合インデックス設計のチェックリスト</h3>
+    <h3>2.6 まとめ: 複合インデックス設計のチェックリスト</h3>
     <p>複合インデックスを設計する際は、以下の順序で検討してください。</p>
     <ul>
         <li>クエリパターンの特定: どのWHERE条件が頻繁に使われるか</li>
@@ -708,28 +789,6 @@ LIMIT 100;</code></pre>
         <li>コストとの比較: ストレージと更新コストを考慮</li>
     </ul>
     <p>この原則に従うことで、効率的で保守しやすい複合インデックスを設計できます。</p>
-
-    <h3>解答例</h3>
-    <div class="answer-content">
-        <p><strong>演習問題1の解答</strong></p>
-        <div class="code-wrapper">
-            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
-            <pre><code>-- クエリA用(等価条件のregionを先頭に)
-CREATE INDEX idx_a ON orders(region, order_date);
-
--- クエリB用(customer_idを先頭に、order_dateで範囲検索とソート)
-CREATE INDEX idx_b ON orders(customer_id, order_date DESC);</code></pre>
-        </div>
-        <p>解説: クエリAはregion = 'Tokyo'という等価条件でまず絞り込み、その中でorder_dateの範囲を検索します。クエリBのDESC指定により、ORDER BY order_date DESCが効率化されます。インデックスがすでに降順でソートされているため、追加のソート処理が不要です。</p>
-    </div>
-    <div class="answer-content">
-        <p><strong>演習問題2の解答</strong></p>
-        <div class="code-wrapper">
-            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
-            <pre><code>CREATE INDEX idx_c ON orders(region, status, order_date DESC);</code></pre>
-        </div>
-        <p>解説: regionとstatusは両方とも等価条件（IN句も等価として扱える）。regionはカーディナリティが低いですが、selectivityは高い（5つの値のうち1つ）。total_amountは範囲条件なので含めませんが、残りの条件で十分絞り込めます。order_date DESCでソートも最適化します。代替案として (status, region, order_date DESC) も有効です。実際のデータ分布とクエリ頻度で決定してください。</p>
-    </div>
 
     <p class="footer-note">本コンテンツの作成時間：約12時間(2026/02/18)</p>
 
