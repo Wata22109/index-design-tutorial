@@ -11,12 +11,55 @@
     <button id="menu-btn" onclick="toggleMenu()">目次</button>
     <div id="menu-content" class="menu-content">
         <ul>
-            <li><a href="#intro">インデックス設計とは</a></li>
-            <li><a href="#env-setup">事前準備：SQL演習環境</a></li>
-            <li><a href="#prep">事前準備：データ生成</a></li>
-            <li><a href="#btree">1. B-Treeの構造と計算量</a></li>
-            <li><a href="#bplustree">1.1 B+Treeの構造とメリット</a></li>
-            <li><a href="#composite">2. 複合インデックスの設計と最適化</a></li>
+            <li>
+                <a href="#index-design">インデックス設計とは</a>
+                <ul>
+                    <li><a href="#index-mechanism">インデックスの仕組み</a></li>
+                    <li><a href="#index-design-meaning">「設計」とは</a></li>
+                    <li><a href="#index-patterns">インデックスを作成すべきパターン</a></li>
+                </ul>
+            </li>
+            <li>
+                <a href="#env-setup">事前準備：SQL演習環境</a>
+                <ul>
+                    <li><a href="#docker">Docker</a></li>
+                    <li><a href="#sql-env">SQL演習用環境</a></li>
+                </ul>
+            </li>
+            <li><a href="#data-gen">事前準備：データ生成</a></li>
+            <li>
+                <a href="#performance">パフォーマンスの計測</a>
+                <ul>
+                    <li><a href="#single-index-why">なぜ単一列インデックスで速くなるのか</a></li>
+                </ul>
+            </li>
+            <li>
+                <a href="#btree">1. B-Treeのデータ構造</a>
+                <ul>
+                    <li><a href="#btree-elements">B-Treeの構成要素</a></li>
+                    <li><a href="#btree-search">B-Treeにおける検索処理</a></li>
+                    <li><a href="#btree-split-merge">ノード分割とマージ</a></li>
+                </ul>
+            </li>
+            <li>
+                <a href="#bplustree">1.1 B+Treeの構造とメリット</a>
+                <ul>
+                    <li><a href="#bplustree-what">B+Treeとは</a></li>
+                    <li><a href="#bplustree-diff">B-Treeとの決定的な3つの違い</a></li>
+                    <li><a href="#bplustree-benefits">データベース設計におけるメリット</a></li>
+                </ul>
+            </li>
+            <li>
+                <a href="#composite">2. 複合インデックスの設計と最適化</a>
+                <ul>
+                    <li><a href="#composite-reason">2.1 複合インデックスを使用する理由</a></li>
+                    <li><a href="#column-order">2.2 カラム順序の決定原則</a></li>
+                    <li><a href="#composite-practice">2.3 実践的アプローチ</a></li>
+                    <li><a href="#composite-caveats">2.4 複合インデックスの注意点</a></li>
+                    <li><a href="#exercises">2.5 演習問題集</a></li>
+                    <li><a href="#composite-summary">2.6 まとめ</a></li>
+                </ul>
+            </li>
         </ul>
     </div>
 </nav>
@@ -25,16 +68,16 @@
     <h1 id="intro">PostgreSQL インデックス設計 チュートリアル</h1>
     <p>データベースのパフォーマンスは、クエリの書き方以上に「インデックス設計」で決まります。</p>
 
-    <h2 id="prep">インデックス設計とは</h2>
+    <h2 id="index-design">インデックス設計とは</h2>
     <p>データベースにおけるインデックス設計とは、膨大なデータから目的の情報を素早く見つけるための「索引」を、どのデータに対して、どのように作成するかを計画することです。インデックスを適切に設計すると、検索速度が劇的に向上しますが、闇雲に作成すると逆にシステムのパフォーマンスを下げてしまうこともあります。</p>
-    <h3 id="prep">インデックスの仕組み</h3>    
+    <h3 id="index-mechanism">インデックスの仕組み</h3>    
     <p><strong>索引がない場合（フルスキャン）</strong><br>
         例えば、1,000ページある技術書から「インデックス」という単語を探したいとします。索引がなければ、1ページ目から順番に最後まで読んでいくしかありません。これをデータベースではフルテーブルスキャンと呼びます。データ量が増えるほど、探す時間は膨大になります。</br>
         
         <strong>索引がある場合（インデックススキャン）</strong><br>
         巻末の索引で「あ行」の「インデックス」を探せば、「324ページにある」と即座にわかります。辞書本体を全部読まなくても、数ページめくるだけで目的の場所にたどり着けます。これがインデックスの役割です。</p>
 
-    <h3 id="prep">「設計」とは</h3>
+    <h3 id="index-design-meaning">「設計」とは</h3>
     <p>全ての項目に索引をつければ良いのではないかと思うかもしれませんが、それではうまくいかない理由が3つあります。</p>
     <ul>
         <li><strong>書き込み速度の低下</strong>:<br> データを追加・更新するたびに、索引も書き換える必要があります。索引が多すぎると、本編の更新よりも索引の更新に時間がかかってしまいます。</li>
@@ -60,7 +103,7 @@
     <h2 id="env-setup">事前準備：SQL演習環境の構築(任意)</h2>
     <p>SQL演習環境を作成する場合は以下の手順を実行してください。</p>
 
-    <h3>Docker</h3>
+    <h3 id="docker">Docker</h3>
     <ol>
         <li><strong>Docker Desktopの準備</strong>: Docker Desktopをインストールし、起動状態（Running）にしておきます。</li>
         <li><strong>イメージの取得</strong>: 公式リポジトリ（Docker Hub）からPostgreSQLとDbGateのイメージを取得（pull）します。</li>
@@ -92,7 +135,7 @@ docker image pull dbgate/dbgate:6.6.3</code></pre>
         <li><strong>コンテナの起動</strong>: <code>npm run db:up</code>コマンドを実行します。これにより、PostgreSQLとDbGate（DB管理ツール）のコンテナがまとめて起動します。</li>
     </ol>
 
-    <h2 id="prep">事前準備：データ生成 (init_data.sql)</h2>
+    <h2 id="data-gen">事前準備：データ生成 (init_data.sql)</h2>
     <p>まずは実験台となる100万件の注文履歴データを作成します。2章の演習でも同じ <code>orders</code> テーブルを使用します。</p>
     <p>貼り付けて実行してください。</p>
     <div class="code-wrapper">
@@ -210,7 +253,7 @@ ROLLBACK;</code></pre>
         </details>
 
 
-    <h3>なぜ単一列インデックスで速くなるのか</h3>
+    <h3 id="single-index-why">なぜ単一列インデックスで速くなるのか</h3>
     <p>この例では <code>customer_id</code> にB-Treeというものが作成されます。内部的には「<code>customer_id</code> の値」と「該当する行の場所（TID）」の対応表が作られ、木構造として整理されます。</p>
     <p>検索時は、テーブル全体を順番に見るのではなく、B-Treeを辿って該当する <code>customer_id</code> の位置に直接ジャンプします。さらに一致する行の場所がまとまっていれば、読み込みの回数も減るため、全件走査よりも大幅に高速化されます。</p>
     <p>結果として、<code>Seq Scan</code> から <code>Index Scan</code> に変わり、処理量が大きく削減されます。</p>
@@ -240,7 +283,7 @@ ROLLBACK;</code></pre>
     <img class="btree-image" src="images/B-Tree3.png" alt="B-Treeのノードのデータ構造"></div>
     <p>このように、B-Treeは厳密なルールに基づいて構造化されており、これによって効率的なデータ検索が実現されています。</p>
 
-    <h3>B-Treeにおける検索処理</h3>
+    <h3 id="btree-search">B-Treeにおける検索処理</h3>
     <p>B-Treeでのデータ検索は、ルートノードを起点として、目標とするデータが発見されるまで、あるいはデータの非存在が判明するまで、段階的に下層のノードへと移動していきます。この検索処理について、具体的な手順を説明します。</p>
     <p>検索の最初のステップは、ルートノードでの照合です。ルートノードでは、検索対象のキー値と、ノード内に保存されているキー値を照合します。ノード内のキー値はソートされているため、二分探索を利用して効率的に照合を実施できます。</p>
     <p>具体例として、従業員ID「22」を検索するケースを考えます。ルートノードに[10, 20, 30]というキー値が保存されているとすると、まず「22」と中央の値「20」を照合します。「22」は「20」より大きいため、次に「30」との照合を実施します。「22」は「30」より小さいため、3番目の子ノード(「20」と「30」の間に対応する子ノード)へ検索を進めます。</p>
@@ -265,10 +308,10 @@ ROLLBACK;</code></pre>
     <h2 id="bplustree">1.1 B+Treeの構造とメリット</h2>
     <p>これまで、B-Treeについての説明をしましたが、データベースにおいて主流なのは「B+Tree」というものです。B+TreeはB-Treeをさらにデータベースの検索（特に範囲検索）に特化させた進化形です。</p>
 
-    <h3>B+Treeとは</h3>
+    <h3 id="bplustree-what">B+Treeとは</h3>
     <p>B+Treeは、B-Treeの構造をベースにしつつ、「データの持ち方」と「ノード間のつながり」を改良したデータ構造です。現在のリレーショナルデータベース（MySQLのInnoDB、PostgreSQLなど）のインデックスにおいて、最も一般的に採用されています。</p>
 
-    <h3>B-Treeとの決定的な3つの違い</h3>
+    <h3>B-Treeとの違い</h3>
     <p>B-TreeとB+Treeの最大の違いは、「サテライトデータ（実際のレコードやポインタ）」をどこに配置するかにあります。</p>
     <ul>
         <li><strong>データはリーフノード（最下層）にのみ集約</strong>: B-Treeでは各内部ノードもデータを持っていましたが、B+Treeでは内部ノードは「検索用のキー（枝分かれの指標）」のみを保持し、実際のデータ（またはデータへのポインタ）はすべて最下層のリーフノードに格納します。</li>
@@ -276,7 +319,7 @@ ROLLBACK;</code></pre>
         <li><strong>キーの重複</strong>: 内部ノードにあるキーはあくまで「道しるべ」なので、同じキー値がリーフノードにも存在します。</li>
     </ul>
 
-    <h3>データベース設計におけるメリット</h3>
+    <h3 id="bplustree-benefits">データベース設計におけるメリット</h3>
     <p>なぜB-TreeではなくB+Treeが選ばれるのか、その理由は運用の効率性にあります。</p>
     <ol>
         <li><strong>範囲検索（Range Scan）が圧倒的に速い</strong><br>
@@ -288,7 +331,7 @@ ROLLBACK;</code></pre>
     </ol>
 
     <h2 id="composite">2. 複合インデックスの設計と最適化</h2>
-    <h3>2.1 複合インデックスを使用する理由</h3>
+    <h3 id="composite-reason">2.1 複合インデックスを使用する理由</h3>
     <p><strong>単一カラムインデックスの限界</strong></p>
     <p>データベースで検索を行う際、多くの場合、複数の条件を組み合わせて検索します。例えば、ECサイトで「東京都内で、配送済みの、2024年1月以降の注文」を検索する場合、region、status、order_dateという3つの条件が必要です。</p>
     <p>もし各カラムに個別のインデックスがあったとしても、PostgreSQLは基本的に1つのクエリで1つのインデックスしか使用しません（Bitmap Index Scanを除く）。つまり、regionのインデックスだけを使って該当する行を絞り込んだ後、残りの条件は実際のテーブルデータを読み込んでフィルタリングする必要があります。</p>
@@ -310,7 +353,7 @@ ROLLBACK;</code></pre>
     </div>
     <p>この構造から分かるように、第1カラムでまず大きくグループ化され、その中で第2カラムがソートされ、さらにその中で第3カラムがソートされるという階層的な構造になっています。</p>
 
-    <h3>2.2 カラム順序の決定原則</h3>
+    <h3 id="column-order">2.2 カラム順序の決定原則</h3>
     <p>複合インデックスで最も重要なのはカラムの順序です。順序を間違えると、インデックスが全く使われない、あるいは効率が大幅に低下する可能性があります。</p>
     <p><strong>原則1: 等価条件(=)を優先的に先頭に配置する</strong></p>
     <p>検索条件には「等価条件」（column = value）と「範囲条件」（column &gt; value、BETWEEN、LIKE 'prefix%'）があります。</p>
@@ -720,7 +763,7 @@ LIMIT 10;</code></pre>
     </details>
     </div>
 
-    <h3>2.4 複合インデックスの注意点</h3>
+    <h3 id="composite-caveats">2.4 複合インデックスの注意点</h3>
     <p><strong>注意点1: インデックスが多すぎるコスト</strong></p>
     <p>インデックスは検索を高速化しますが、以下のコストがかかります。</p>
     <ul>
@@ -855,9 +898,182 @@ LIMIT 100;</code></pre>
                 <p>解説: regionとstatusは両方とも等価条件（IN句も等価として扱える）。regionはカーディナリティが低いですが、selectivityは高い（5つの値のうち1つ）。total_amountは範囲条件なので含めませんが、残りの条件で十分絞り込めます。order_date DESCでソートも最適化します。代替案として (status, region, order_date DESC) も有効です。実際のデータ分布とクエリ頻度で決定してください。</p>
             </div>
         </details>
+        <span class="exercise-title" style="display: block; margin-top: 1.5em;">📝 演習問題3: Index Only Scan</span>
+        <p>インデックスは単に検索を速くするだけでなく、テーブル本体へのアクセスを省略する（Index Only Scan）ためにも利用できます。</p>
+        <p><strong>課題</strong></p>
+        <p>以下のクエリは、特定の顧客の注文ごとの合計金額を取得するものです。このクエリに対して、テーブル本体（ヒープ領域）へのアクセスを発生させず、インデックスだけで処理が完結するようなインデックスを作成してください。</p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>-- 対象クエリ
+SELECT order_id, total_amount 
+FROM orders 
+WHERE customer_id = 5000;</code></pre>
+        </div>
+        <p><strong>ヒント</strong></p>
+        <p>EXPLAIN ANALYZE の出力に Heap Fetches: 0 または Index Only Scan が表示されることを目指します。インデックスには検索条件だけでなく、取得するカラムも含めることができます。</p>
+        <details>
+            <summary>演習問題3の解答例</summary>
+            <div class="answer-content">
+                <div class="code-wrapper">
+                    <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+                    <pre><code>-- 解答: 検索条件(customer_id)に加え、取得列(order_id, total_amount)も含める
+CREATE INDEX idx_covering ON orders(customer_id, order_id, total_amount);
+ANALYZE orders;</code></pre>
+                </div>
+                <p>解説: インデックスの中に <code>SELECT</code> 句で必要なデータがすべて含まれていれば、DBはわざわざテーブル本体を見に行く必要がなくなります。これを「カバリングインデックス」と呼びます。特に読み取りが多いクエリで劇的な効果を発揮します。</p>
+            </div>
+        </details>
+        <span class="exercise-title" style="display: block; margin-top: 1.5em;">📝 演習問題4: 関数インデックス (Function-Based Index)</span>
+        <p><strong>背景</strong></p>
+        <p>ユーザーから「地域名（region）を小文字で検索してもヒットするようにしてほしい」という要望がありました。</p>
+        <p><strong>課題</strong></p>
+        <p>以下のクエリを高速化するインデックスを作成してください。通常のインデックスでは関数（LOWER）を通した検索条件には適用されません。解決策を見つけてください。</p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>-- 対象クエリ
+EXPLAIN ANALYZE
+SELECT * FROM orders 
+WHERE LOWER(region) = 'tokyo';</code></pre>
+        </div>
+        <details>
+            <summary>演習問題4の解答例</summary>
+            <div class="answer-content">
+                <div class="code-wrapper">
+                    <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+                    <pre><code>-- 解答: カラムそのものではなく、式に対してインデックスを貼る
+CREATE INDEX idx_lower_region ON orders(LOWER(region));
+ANALYZE orders;</code></pre>
+                </div>
+                <p>解説: カラムの値そのものではなく、計算結果や関数適用後の値に対して作成するインデックスを「関数インデックス」と呼びます。検索条件とインデックス定義の式が完全に一致する場合にのみ使用されます。</p>
+            </div>
+        </details>
+        <span class="exercise-title" style="display: block; margin-top: 1.5em;">📝 演習問題5: 部分インデックスによる効率化</span>
+        <p><strong>背景</strong></p>
+        <p>システム管理者から「キャンセルされた注文（status = 'cancelled'）の調査を頻繁に行うが、キャンセル率は全体の1%程度しかない。検索は速くしたいが、全データにインデックスを貼って容量を圧迫するのは避けたい」という相談を受けました。</p>
+        <p><strong>課題</strong></p>
+        <p>以下のクエリを高速化しつつ、インデックスのサイズを必要最小限に抑える設計を行ってください。</p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>-- 対象クエリ
+SELECT * FROM orders 
+WHERE status = 'cancelled' 
+  AND total_amount >= 10000;</code></pre>
+        </div>
+        <p><strong>検証用SQL</strong></p>
+        <p>通常の複合インデックスと、今回作成するインデックスのサイズを比較してみましょう。</p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>-- 比較用：通常のインデックス
+CREATE INDEX idx_full ON orders(status, total_amount);
+ANALYZE orders;
+
+-- ★ここに解答のインデックスを作成★
+
+-- サイズ比較（解答のインデックス名に置き換えて実行）
+SELECT 
+    pg_size_pretty(pg_relation_size('idx_full')) as full_index_size,
+    pg_size_pretty(pg_relation_size('【あなたの作成したインデックス名】')) as partial_index_size;</code></pre>
+        </div>
+        <details>
+            <summary>演習問題5の解答例</summary>
+            <div class="answer-content">
+                <div class="code-wrapper">
+                    <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+                    <pre><code>-- 解答: WHERE句付きのインデックスを作成する
+CREATE INDEX idx_partial ON orders(total_amount) WHERE status = 'cancelled';
+ANALYZE orders;
+
+-- サイズ比較
+SELECT 
+    pg_size_pretty(pg_relation_size('idx_full')) as full_index_size,
+    pg_size_pretty(pg_relation_size('idx_partial')) as partial_index_size;</code></pre>
+                </div>
+                <p>解説: 「部分インデックス（Partial Index）」を使用すると、条件に合致する行だけをインデックスに格納できます。status='cancelled'の行だけを対象にするため、インデックスサイズが劇的に小さくなり、更新コストも低く抑えられます。</p>
+            </div>
+        </details>
+        <span class="exercise-title" style="display: block; margin-top: 1.5em;">📝 演習問題6: JOINを含むクエリの最適化</span>
+        <p><strong>準備</strong></p>
+        <p>新しいテーブル order_items（注文明細）を作成し、データを投入します。以下のSQLを実行してください。</p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>-- 注文明細テーブル（約300万件）の作成
+DROP TABLE IF EXISTS order_items;
+CREATE TABLE order_items (
+    item_id SERIAL PRIMARY KEY,
+    order_id INTEGER NOT NULL,
+    product_name VARCHAR(100) NOT NULL,
+    quantity INTEGER NOT NULL
+);
+
+INSERT INTO order_items (order_id, product_name, quantity)
+SELECT 
+    (random() * 1000000)::INTEGER + 1,
+    'Product-' || (floor(random() * 100) + 1)::TEXT,
+    (floor(random() * 10) + 1)::INTEGER
+FROM generate_series(1, 3000000);
+ANALYZE order_items;</code></pre>
+        </div>
+        <p><strong>課題</strong></p>
+        <p>「特定の製品（Product-50）が含まれる注文の日付一覧」を取得したいです。現状では結合処理に時間がかかっています。適切なインデックスを作成して高速化してください。</p>
+        <p>※PostgreSQLでは、外部キー制約を定義しても自動的にインデックスは作成されません。</p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>-- 対象クエリ
+EXPLAIN ANALYZE
+SELECT o.order_date, o.customer_id
+FROM orders o
+INNER JOIN order_items oi ON o.order_id = oi.order_id
+WHERE oi.product_name = 'Product-50';</code></pre>
+        </div>
+        <details>
+            <summary>演習問題6の解答例</summary>
+            <div class="answer-content">
+                <div class="code-wrapper">
+                    <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+                    <pre><code>-- 解答: 結合キー(order_id)と検索条件(product_name)へのインデックス
+-- order_items側: product_nameで絞り込み、order_idで結合する
+CREATE INDEX idx_items_product_order ON order_items(product_name, order_id);
+ANALYZE order_items;
+
+-- orders側: order_idは主キーなので既にインデックスがあるため作成不要</code></pre>
+                </div>
+                <p>解説: JOINを行う際、Nested Loop Joinなどが選択されると、内部表へのアクセス回数が膨大になります。結合条件となるカラム（order_id）と、絞り込み条件（product_name）をカバーするインデックスが重要です。</p>
+            </div>
+        </details>
+        <span class="exercise-title" style="display: block; margin-top: 1.5em;">📝 演習問題7: INCLUDE句を用いた高度な設計</span>
+        <p><strong>背景</strong></p>
+        <p>演習問題3で「Index Only Scan」を行いましたが、インデックスのキー列（検索やソートに使われる列）に不要なカラムまで含めると、B-Treeの分岐効率が悪くなる可能性があります。</p>
+        <p><strong>課題</strong></p>
+        <p>以下のクエリに対して、「Index Only Scan」を実現しつつ、B-Treeの探索効率（ソート順序の維持）を妨げない最適なインデックスを設計してください。PostgreSQL独自の INCLUDE 句について調べてみましょう。</p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+            <pre><code>-- 対象クエリ
+SELECT status, total_amount 
+FROM orders 
+WHERE customer_id = 1234 
+ORDER BY order_date DESC;</code></pre>
+        </div>
+        <p><strong>条件</strong></p>
+        <ul>
+            <li>customer_id で絞り込み、order_date でソートする構造を崩さないこと。</li>
+            <li>status と total_amount を取得するためにテーブルアクセスを発生させないこと。</li>
+        </ul>
+        <details>
+            <summary>演習問題7の解答例</summary>
+            <div class="answer-content">
+                <div class="code-wrapper">
+                    <button class="copy-btn" onclick="copyCode(this)">Copy SQL</button>
+                    <pre><code>-- 解答: キー部には検索・ソート列のみを指定し、付加情報はINCLUDEに逃がす
+CREATE INDEX idx_include ON orders(customer_id, order_date DESC)
+INCLUDE (status, total_amount);
+ANALYZE orders;</code></pre>
+                </div>
+                <p>解説: <code>INCLUDE</code> 句を指定すると、そのカラムはB-Treeの「枝（Internal Node）」には含まれず、「葉（Leaf Node）」にだけペイロードとして格納されます。これにより、検索・ソートの効率を維持したまま、Index Only Scanの恩恵を受けることができます。</p>
+            </div>
+        </details>
     </div>
 
-    <h3>2.6 まとめ: 複合インデックス設計のチェックリスト</h3>
+    <h3 id="composite-summary">2.6 まとめ: 複合インデックス設計のチェックリスト</h3>
     <p>複合インデックスを設計する際は、以下の順序で検討してください。</p>
     <ul>
         <li>クエリパターンの特定: どのWHERE条件が頻繁に使われるか</li>
@@ -871,7 +1087,7 @@ LIMIT 100;</code></pre>
     </ul>
     <p>この原則に従うことで、効率的で保守しやすい複合インデックスを設計できます。</p>
 
-    <p class="footer-note">本コンテンツの作成時間：約12時間(2026/02/18)</p>
+    <p class="footer-note">本コンテンツの作成時間：約18時間(2026/02/21)</p>
 
 </div>
 
